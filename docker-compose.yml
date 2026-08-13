@@ -1,0 +1,14 @@
+services:
+  contrarian:
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    ports:
+      - "127.0.0.1:8014:8014"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    cpus: "1.0"        # shared VPS — same courtesy cap as paper2md
+    mem_limit: 512m

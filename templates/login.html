@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Login</h2>
+<p class="muted">The catalog and the protocol are public. Traces and key
+management are content, not method — they need the admin password.</p>
+{% if error %}<p style="color:var(--accent)">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+  <input type="password" name="password" placeholder="admin password" autofocus>
+  <button type="submit">Enter</button>
+</form>
+{% endblock %}

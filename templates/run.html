@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}trace {{ run.id }} — Contrarian{% endblock %}
+{% block content %}
+<p class="muted" style="font-size:.85rem"><a href="/runs">← all traces</a></p>
+<h2>“{{ run.claim }}”</h2>
+<p class="muted">
+run <code>{{ run.id }}</code> · started {{ run.created_at.strftime("%Y-%m-%d %H:%M") }}
+· {{ run.status }}{% if run.verdict %} · verdict: <strong class="verdict">{{ run.verdict.replace("_", " ") }}</strong>{% endif %}
+<br>protocol: {% for name, v in versions.items() %}<code>{{ name }}@{{ v }}</code> {% endfor %}
+</p>
+
+{% if run.dossier %}
+<h3>Dossier</h3>
+<div class="recap">{{ run.dossier }}</div>
+{% endif %}
+
+<h3>Trail</h3>
+{% for e in events %}
+<details class="event" {% if e.kind in ("selection", "verification", "finish") %}open{% endif %}>
+  <summary>
+    <strong>{{ e.seq }}. {{ e.kind }}</strong>
+    {% if e.kind == "search" %}
+      — <span class="badge">{{ e.data.stance }}</span> {{ e.data.database }}:
+      <code>{{ e.data.query[:80] }}{% if e.data.query|length > 80 %}…{% endif %}</code>
+      {% if e.data.error %}· <span style="color:var(--accent)">error</span>
+      {% else %}· {{ e.data.total }} hits, {{ e.data.returned }} returned{% endif %}
+    {% elif e.kind == "fulltext" %}
+      — <code>{{ e.data.doi }}</code> · {{ e.data.status }}
+      {% if e.data.provider %}via {{ e.data.provider }}{% endif %}
+    {% elif e.kind == "selection" %}
+      — {{ e.data.stance }}: {{ e.data.selected|length }} selected,
+      {{ e.data.excluded|length }} excluded
+    {% elif e.kind == "verification" %}
+      — <code>{{ e.data.key }}</code> · {{ e.data.paper_verdict }}
+    {% elif e.kind == "finish" %}
+      — {{ e.data.verdict.replace("_", " ") }} · {{ e.data.references }} references
+    {% endif %}
+    <span class="muted" style="float:right">{{ e.at.strftime("%H:%M:%S") }}</span>
+  </summary>
+  <div class="body">
+  {% if e.kind == "search" %}
+    <p><code>{{ e.data.query }}</code></p>
+    {% if e.data.error %}<p style="color:var(--accent)">{{ e.data.error }}</p>{% endif %}
+    {% if e.data.records %}
+    <table>
+      <tr><th>key</th><th>title</th><th>year</th><th>source</th></tr>
+      {% for rec in e.data.records %}
+      <tr><td><code style="font-size:.75rem">{{ rec.key }}</code></td>
+          <td>{{ rec.title[:90] }}</td><td>{{ rec.year or "—" }}</td>
+          <td class="muted">{{ rec.source[:40] }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  {% elif e.kind == "selection" %}
+    {% for s in e.data.selected %}
+      <p>✔ <code>{{ s.key }}</code> — {{ s.reason }}</p>
+    {% endfor %}
+    {% for s in e.data.excluded %}
+      <p class="muted">✘ <code>{{ s.key }}</code> — {{ s.reason }}</p>
+    {% endfor %}
+    {% if e.data.unknown_keys %}
+      <p style="color:var(--accent)">⚠ keys never seen in this run's searches: {{ e.data.unknown_keys }}</p>
+    {% endif %}
+  {% elif e.kind == "fulltext" %}
+    {% if e.data.url %}<p><a href="{{ e.data.url }}">{{ e.data.url }}</a></p>{% endif %}
+    {% if e.data.chars %}<p class="muted">{{ e.data.chars }} chars retrieved (text not stored — see fulltext piece page)</p>{% endif %}
+    {% for n in e.data.notes %}<p class="muted">note: {{ n }}</p>{% endfor %}
+  {% elif e.kind == "verification" %}
+    {% if e.data.unknown_key %}<p style="color:var(--accent)">⚠ key never seen in this run's searches</p>{% endif %}
+    {% for p in e.data.passages %}
+      <blockquote>“{{ p.quote }}”</blockquote>
+      <p class="muted" style="margin-top:-.3rem">
+        {{ p.location }} · <strong>{{ p.bearing }}</strong> — {{ p.why }}</p>
+    {% endfor %}
+  {% elif e.kind == "finish" %}
+    {% if e.data.unresolved_tokens %}
+      <p style="color:var(--accent)">⚠ unresolved citation tokens: {{ e.data.unresolved_tokens }}</p>
+    {% else %}
+      <p class="muted">All citation tokens resolved from run metadata.</p>
+    {% endif %}
+  {% endif %}
+  </div>
+</details>
+{% endfor %}
+{% endblock %}

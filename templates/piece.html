@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name }} — Contrarian{% endblock %}
+{% block content %}
+<span class="badge {{ p.kind }}">{{ p.kind }}{% if p.version %} v{{ p.version }}{% endif %}</span>
+<h2 style="margin-top:.2rem">{{ p.name }}{% if p.meta.signature %}<code class="muted" style="font-size:.7em">{{ p.meta.signature }}</code>{% endif %}</h2>
+
+<h3>What it does</h3>
+<div class="recap">{{ p.recap }}</div>
+
+<h3>{% if p.kind == "prompt" %}The prompt, verbatim{% else %}The source, live{% endif %}</h3>
+<p class="muted" style="font-size:.85rem">
+{% if p.kind == "prompt" %}
+This is the exact text served to the model via MCP <code>prompts/get</code>.
+Its version is stamped into every trace that runs under it.
+{% else %}
+Rendered with <code>inspect.getsource()</code> from the running process —
+not a copy that can drift. Deployed commit in the footer.
+{% endif %}
+</p>
+<pre><code>{{ p.source }}</code></pre>
+<p><a href="/">← back to the catalog</a></p>
+{% endblock %}

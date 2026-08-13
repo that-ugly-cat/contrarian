@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>API keys</h2>
+<p class="muted">Keys gate the model-facing surfaces (<code>/mcp</code> and
+<code>/api</code>). Publisher TDM credentials live server-side in the
+environment and never transit through these.</p>
+<form method="post" action="/admin/keys" style="margin-bottom:1.5rem">
+  <input type="text" name="name" placeholder="key name" required>
+  <input type="text" name="notes" placeholder="notes">
+  <button type="submit">Issue key</button>
+</form>
+<table>
+  <tr><th>name</th><th>key</th><th>notes</th><th>last used</th><th>status</th><th></th></tr>
+  {% for k in keys %}
+  <tr>
+    <td>{{ k.name }}</td>
+    <td><code>{{ k.key }}</code></td>
+    <td class="muted">{{ k.notes }}</td>
+    <td class="muted">{{ k.last_used_at.strftime("%Y-%m-%d %H:%M") if k.last_used_at else "never" }}</td>
+    <td>{{ "active" if k.active else "revoked" }}</td>
+    <td><form method="post" action="/admin/keys/{{ k.id }}/toggle">
+        <button type="submit">{{ "revoke" if k.active else "reactivate" }}</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

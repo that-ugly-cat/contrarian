@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<p style="max-width: 44rem;">
+Contrarian checks a claim against the scientific literature — and checks the
+<em>opposite</em> claim with the same effort. A model in conversation drives the
+pipeline through <a href="/piece/search">MCP tools</a>; this site is the glass
+box: every tool, prompt and library module below shows its own live source and
+a plain-language recap of what it does. Every verification run leaves a full
+trace — queries, records, selections with reasons, retrieval outcomes, quoted
+passages, verdict — stamped with the protocol version it ran under.
+</p>
+
+{% for kind, label, blurb in [
+    ("tool", "Tools", "What the model can call. The server searches, retrieves and logs; judgment stays in conversation."),
+    ("prompt", "Protocol prompts", "The epistemic rules, versioned. Served to the model via MCP prompts/get — the same text you read here."),
+    ("library", "Library", "What the tools stand on, derived from the borant toolchain (LSSR, paper2md).")] %}
+<h2>{{ label }}</h2>
+<p class="muted" style="margin-top:-.5rem">{{ blurb }}</p>
+<div class="cards">
+  {% for p in pieces if p.kind == kind %}
+  <a class="card" href="/piece/{{ p.name }}">
+    <span class="badge {{ p.kind }}">{{ p.kind }}{% if p.version %} v{{ p.version }}{% endif %}</span>
+    <h3>{{ p.name }}</h3>
+    <p>{{ p.summary }}</p>
+  </a>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}
