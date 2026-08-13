@@ -65,7 +65,12 @@ def _parse_medline(article: str) -> dict:
         return [x.strip() for x in re.findall(re.compile(pattern), article)]
 
     year = find(r"(?<=DP\s\s-\s)\d{4}")
-    doi = find(r"(?<=AID\s-\s).*(?=\s\[doi)")
+    doi = find(r"(?<=AID\s-\s).*(?=\s\[doi)") or find(r"(?<=LID\s-\s).*(?=\s\[doi)")
+    pmid = find(r"(?<=PMID-\s)\d+")
+    # DOI-less records (mostly pre-2000) still need a citable identity — fall
+    # back to the PubMed URL so their [R:url:...] key exists.
+    url = (f"https://doi.org/{doi}" if doi
+           else f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else "")
     return _norm({
         "title": find(r"(?<=TI\s\s-\s).*") or find(r"(?<=BTI\s-\s).*"),
         "abstract": find(r"(?<=AB\s\s-\s).*") or find(r"(?<=OAB\s-\s).*"),
@@ -73,7 +78,7 @@ def _parse_medline(article: str) -> dict:
                     or join_authors(findall(r"(?<=AU\s\s-\s).*"))),
         "year": int(year) if year else None,
         "doi": doi,
-        "url": f"https://doi.org/{doi}" if doi else "",
+        "url": url,
         "source": find(r"(?<=JT\s\s-\s).*") or find(r"(?<=PB\s\s-\s).*"),
         "database": "pubmed",
     })

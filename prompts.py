@@ -145,7 +145,7 @@ Return: the dossier, verdict first.
 
 
 VERIFY_CLAIM = _p(
-    "verify_claim", "1.0.0", "Master protocol — full claim verification run",
+    "verify_claim", "1.1.0", "Master protocol — full claim verification run",
     """
 Run a full Contrarian verification of a claim against the scientific
 literature. You orchestrate; the server searches, retrieves and logs. Every
@@ -170,8 +170,15 @@ THE CLAIM: {claim}
 7. VERDICT — follow prompt render_verdict; write the dossier with [R:...]
    tokens only.
 8. FINISH — call finish_run(run_id, verdict, dossier). The server resolves
-   your tokens into real references from run metadata and returns the final
-   dossier plus the trace URL. Report both to the user, including any
+   your tokens into real references and appends two procedural blocks
+   computed from the trace: run statistics (how many records were seen, how
+   many full texts were actually read vs judged on abstract only) and the
+   numbered reference list (author, year, DOI link).
+9. REPORT — your final message to the user must contain, verbatim from
+   finish_run's response: the trace URL, the run-statistics block, and the
+   full reference list. Summarize the findings in your own words if you
+   wish, but never paraphrase, renumber or omit the references and the
+   statistics — they are the auditable part of the answer. Report any
    unresolved tokens as failures, not as references.
 """)
 

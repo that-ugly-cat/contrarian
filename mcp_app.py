@@ -25,7 +25,7 @@ import prompts
 import references
 import sources
 from models import (Run, SessionLocal, get_run, log_event, records_by_key,
-                    utcnow)
+                    run_stats, utcnow)
 
 MAX_FULLTEXT_CHARS = 150_000
 
@@ -182,8 +182,12 @@ def finish_run(run_id: str, verdict: str, dossier: str) -> dict:
     """Close the run. verdict: supported | contested | unsupported |
     no_evidence. The dossier cites only with [R:key] tokens; the server
     resolves them into real references from the run's own search records and
-    returns the final text + reference list + trace URL. Unresolved tokens
-    come back as failures — report them as such, never as citations."""
+    appends two procedural blocks computed from the trace: run statistics
+    (records seen vs full texts actually read) and the reference list
+    (author, year, DOI link). Returns the final text + references + stats +
+    trace URL — report the returned dossier to the user as-is, statistics and
+    references included. Unresolved tokens come back as failures — report
+    them as such, never as citations."""
     import os
     db = SessionLocal()
     try:
@@ -193,6 +197,21 @@ def finish_run(run_id: str, verdict: str, dossier: str) -> dict:
         if verdict not in ("supported", "contested", "unsupported", "no_evidence"):
             return _fail("verdict must be supported | contested | unsupported | no_evidence")
         resolved, refs, unresolved = references.resolve(dossier, records_by_key(run))
+        stats = run_stats(run)
+        resolved += (
+            "\n\nRun statistics (computed from the trace)\n"
+            f"- searches: {stats['searches']} "
+            f"({stats['searches_pro']} pro, {stats['searches_contra']} contra), "
+            f"{stats['total_hits']} total hits, "
+            f"{stats['records_returned']} records retrieved "
+            f"({stats['records_unique']} unique)\n"
+            f"- shortlisted for reading: {stats['shortlisted']}\n"
+            f"- full text: {stats['fulltext_ok']} obtained, "
+            f"{stats['fulltext_url_only']} link only, "
+            f"{stats['fulltext_failed']} not found "
+            f"(of {stats['fulltext_attempted']} attempted)\n"
+            f"- papers judged: {stats['papers_verified']}, "
+            f"of which {stats['abstract_only']} on abstract only")
         if refs:
             resolved += "\n\nReferences\n" + "\n".join(
                 f"{i + 1}. {r}" for i, r in enumerate(refs))
@@ -203,9 +222,9 @@ def finish_run(run_id: str, verdict: str, dossier: str) -> dict:
         db.commit()
         log_event(db, run, "finish",
                   {"verdict": verdict, "references": len(refs),
-                   "unresolved_tokens": unresolved})
+                   "unresolved_tokens": unresolved, "stats": stats})
         base = os.environ.get("PUBLIC_URL", "http://localhost:8014").rstrip("/")
-        return {"dossier": resolved, "references": refs,
+        return {"dossier": resolved, "references": refs, "stats": stats,
                 "unresolved_tokens": unresolved,
                 "trace_url": f"{base}/runs/{run.id}"}
     finally:

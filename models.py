@@ -91,6 +91,37 @@ def get_run(db, run_id: str) -> Run | None:
     return db.query(Run).filter(Run.id == run_id).first()
 
 
+def run_stats(run: Run) -> dict:
+    """Procedural run statistics, computed from the trace — never from the
+    model's memory of it. Appended to every dossier by finish_run, so the
+    reader always knows how much of the verdict rests on full texts and how
+    much on abstracts."""
+    searches = [e.data for e in run.events if e.kind == "search"]
+    fulltexts = [e.data for e in run.events if e.kind == "fulltext"]
+    verifications = [e.data for e in run.events if e.kind == "verification"]
+    selected = sum(len(e.data.get("selected", []))
+                   for e in run.events if e.kind == "selection")
+    ok_dois = {(f.get("doi") or "").strip().lower()
+               for f in fulltexts if f.get("status") == "ok"}
+    abstract_only = [v for v in verifications
+                     if (v.get("key") or "").strip().lower() not in ok_dois]
+    return {
+        "searches": len(searches),
+        "searches_pro": sum(1 for s in searches if s.get("stance") == "pro"),
+        "searches_contra": sum(1 for s in searches if s.get("stance") == "contra"),
+        "total_hits": sum(s.get("total") or 0 for s in searches),
+        "records_returned": sum(s.get("returned") or 0 for s in searches),
+        "records_unique": len(records_by_key(run)),
+        "shortlisted": selected,
+        "fulltext_attempted": len(fulltexts),
+        "fulltext_ok": sum(1 for f in fulltexts if f.get("status") == "ok"),
+        "fulltext_url_only": sum(1 for f in fulltexts if f.get("status") == "url_only"),
+        "fulltext_failed": sum(1 for f in fulltexts if f.get("status") == "failed"),
+        "papers_verified": len(verifications),
+        "abstract_only": len(abstract_only),
+    }
+
+
 def records_by_key(run: Run) -> dict:
     """Every record this run has seen, keyed for [R:...] token resolution.
     Walking the search events (instead of a separate records table) keeps the
