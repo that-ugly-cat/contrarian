@@ -18,6 +18,10 @@ The ladder, in order of preference:
 4. **Publisher TDM APIs** (Elsevier, Springer OA, Wiley) — the sanctioned way
    into subscription content, tried only when a key is configured and only for
    DOIs with that publisher's prefix.
+5. **OA siblings** — OpenAlex indexes preprint and publisher versions as
+   separate works, so when every rung fails on the requested DOI the ladder
+   looks for a same-titled work under another DOI (an ACM paper's arXiv copy,
+   a journal article's SocArXiv deposit) and climbs its OA locations too.
 
 PDFs are converted through paper2md (references stripped — the model reads the
 article, not its bibliography).
@@ -120,6 +124,40 @@ def candidates(doi: str, email: str) -> list[tuple[str, str]]:
                 out.append((kind, url))
     out.sort(key=lambda c: _KIND_ORDER[c[0]])
     return out[:MAX_CANDIDATES]
+
+
+def sibling_candidates(doi: str, title: str, email: str) -> list[tuple[str, str, str]]:
+    """(kind, url, sibling_doi) for OA copies of *other* OpenAlex works with the
+    same title — usually the preprint sibling of a paywalled publisher record
+    (an ACM paper's arXiv copy, a journal article's SocArXiv deposit). OpenAlex
+    indexes preprint and publisher versions as separate works, so the main
+    ladder never sees them; title verification downstream still guards against
+    a same-titled different paper."""
+    from difflib import SequenceMatcher
+    tnorm = " ".join(_WORD.findall((title or "").lower()))
+    if len(tnorm) < 12:
+        return []
+    try:
+        r = _get("https://api.openalex.org/works",
+                 params={"filter": f"title.search:{tnorm}", "per-page": 8,
+                         "mailto": email})
+        works = r.json().get("results", []) if r.status_code == 200 else []
+    except Exception:
+        works = []
+    out = []
+    for w in works:
+        wdoi = (w.get("doi") or "").replace("https://doi.org/", "").lower()
+        if not wdoi or wdoi == doi.lower():
+            continue
+        wnorm = " ".join(_WORD.findall((w.get("title") or "").lower()))
+        if SequenceMatcher(None, tnorm, wnorm).ratio() < 0.9:
+            continue
+        best = w.get("best_oa_location") or {}
+        if best.get("pdf_url"):
+            out.append(("pdf", best["pdf_url"], wdoi))
+        elif best.get("landing_page_url"):
+            out.append(("landing", best["landing_page_url"], wdoi))
+    return out[:4]
 
 
 # ── JATS → markdown ────────────────────────────────────────────────────────────
@@ -473,6 +511,32 @@ def retrieve(doi: str, expected_title: str | None = None) -> dict:
                 return r
         except RuntimeError as exc:
             notes.add(str(exc))
+
+    # Last rung: OA siblings — same-titled OpenAlex works under another DOI
+    # (preprint/publisher versions are separate works, invisible to the main
+    # ladder). Only reachable with an expected title to match against.
+    if expected:
+        for kind, url, wdoi in sibling_candidates(doi, expected, email):
+            pdf = None
+            if kind == "pdf":
+                pdf = _download_pdf(url)
+            else:
+                pdf, pdf_url = pdf_from_landing(url)
+                if pdf is None and pdf_url:
+                    pdf = _download_pdf(pdf_url)
+            if not pdf:
+                fallback = fallback or url
+                continue
+            try:
+                md = pdf_to_markdown(pdf)
+            except RuntimeError as exc:
+                notes.add(str(exc))
+                continue
+            if md:
+                notes.add(f"OA sibling record tried: {wdoi} "
+                          f"(same title, different DOI)")
+                if r := _accept(md, "oa_sibling+paper2md", url):
+                    return r
 
     if fallback:
         return {"status": "url_only", "markdown": "", "provider": "",

@@ -47,10 +47,13 @@ re-serves copyrighted text.
 
 ## MCP surface
 
-Six tools: `start_run`, `search`, `get_fulltext`, `log_selection`,
-`log_verification`, `finish_run`. Five prompts: the four step prompts plus
-`verify_claim`, the master protocol. Streamable HTTP at `/mcp`, gated by
-`X-API-Key` (issued in `/admin`).
+Seven tools: `start_run`, `search`, `snowball` (citation chasing on a pivot
+paper — forward for replications and rebuttals, backward for its references),
+`get_fulltext`, `log_selection`, `log_verification`, `finish_run`. Five
+prompts: the four step prompts plus `verify_claim`, the master protocol —
+also inlined in `start_run`'s response for clients that cannot fetch
+prompts/get. Streamable HTTP at `/mcp`, gated by `X-API-Key` (issued in
+`/admin`).
 
 Claude Code:
 

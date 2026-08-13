@@ -16,7 +16,20 @@ Three literature databases with free APIs, derived from LSSR's harvest modules
 Query syntax is the native syntax of each database. PubMed is the richest
 (MeSH + field tags) and the default. Europe PMC caveat inherited from LSSR:
 its MESH: field silently collapses on multi-word headings — use KW: instead,
-which tracks [Mesh:noexp] closely.
+which tracks [Mesh:noexp] closely. OpenAlex caveat: title_and_abstract.search
+ANDs every word, so queries must stay at a few core keywords.
+
+Besides keyword search there is one more retrieval verb: **snowball** —
+citation chasing on a pivot record via OpenAlex (`cites:` / `cited_by:`
+filters). Replications and rebuttals cite the paper they answer, so for a
+claim that originates from a known paper, forward snowballing is structurally
+the best contra search there is. LLM-free pure retrieval, like everything
+else in this module.
+
+Abstracts are capped at ABSTRACT_CAP characters: OpenAlex reconstructs
+abstracts from an inverted index and for some records (editorials, whole
+reviews) returns the entire text as "abstract" — tens of KB per record. The
+cut is declared (`abstract_truncated: true`), never silent.
 """
 import json
 import re
@@ -33,6 +46,7 @@ http = urllib3.PoolManager()
 DATABASES = ("pubmed", "europepmc", "openalex")
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
+ABSTRACT_CAP = 2500      # chars; anything longer is a full text posing as one
 
 NCBI_RATE = 0.4          # seconds between E-utilities requests (NCBI policy)
 PUBMED_FETCH_BATCH = 50  # PMIDs per efetch call
@@ -48,6 +62,9 @@ def _norm(record: dict) -> dict:
     record.setdefault("doi", "")
     record.setdefault("url", "")
     record.setdefault("source", "")
+    if len(record["abstract"]) > ABSTRACT_CAP:
+        record["abstract"] = record["abstract"][:ABSTRACT_CAP].rstrip() + " […]"
+        record["abstract_truncated"] = True
     return record
 
 
@@ -162,41 +179,77 @@ def _reconstruct_abstract(inv: dict | None) -> str:
     return " ".join(w for _, w in positions)
 
 
+def _openalex_record(r: dict) -> dict:
+    doi = (r.get("doi") or "").replace("https://doi.org/", "")
+    year = r.get("publication_year")
+    return _norm({
+        "title": r.get("title") or r.get("display_name") or "",
+        "abstract": _reconstruct_abstract(r.get("abstract_inverted_index")),
+        "authors": join_authors(
+            (a.get("author") or {}).get("display_name", "")
+            for a in r.get("authorships", []) if a.get("author")),
+        "year": int(year) if year else None,
+        "doi": doi,
+        "url": f"https://doi.org/{doi}" if doi else (r.get("id", "") or ""),
+        "source": ((r.get("primary_location") or {}).get("source") or {})
+                  .get("display_name", "") or "",
+        "database": "openalex",
+    })
+
+
+def _openalex_get(path_or_params: str) -> dict:
+    import os
+    url = f"https://api.openalex.org/works{path_or_params}"
+    mailto = os.environ.get("OPENALEX_MAILTO", "").strip()
+    if mailto:
+        url += ("&" if "?" in url else "?") + urlencode({"mailto": mailto})
+    resp = http.request("GET", url)
+    data = json.loads(resp.data.decode("utf-8"))
+    if resp.status >= 400 or "error" in data:
+        msg = data.get("message") or data.get("error") or f"HTTP {resp.status}"
+        raise SearchError(f"OpenAlex rejected the request: {msg}")
+    return data
+
+
 def search_openalex(query: str, limit: int,
                     year_from: int | None, year_to: int | None) -> tuple[int, list[dict]]:
-    import os
     filt = f"title_and_abstract.search:{query}"
     if year_from and year_to:
         filt += (f",from_publication_date:{year_from}-01-01"
                  f",to_publication_date:{year_to}-12-31")
-    params = {"filter": filt, "per-page": limit, "sort": "relevance_score:desc"}
-    mailto = os.environ.get("OPENALEX_MAILTO", "").strip()
-    if mailto:
-        params["mailto"] = mailto
-    resp = http.request("GET", f"https://api.openalex.org/works?{urlencode(params)}")
-    data = json.loads(resp.data.decode("utf-8"))
-    if resp.status >= 400 or "error" in data:
-        msg = data.get("message") or data.get("error") or f"HTTP {resp.status}"
-        raise SearchError(f"OpenAlex rejected the query: {msg}")
+    params = urlencode({"filter": filt, "per-page": limit,
+                        "sort": "relevance_score:desc"})
+    data = _openalex_get(f"?{params}")
     total = data.get("meta", {}).get("count", 0)
-    records = []
-    for r in data.get("results", []):
-        doi = (r.get("doi") or "").replace("https://doi.org/", "")
-        year = r.get("publication_year")
-        records.append(_norm({
-            "title": r.get("title") or r.get("display_name") or "",
-            "abstract": _reconstruct_abstract(r.get("abstract_inverted_index")),
-            "authors": join_authors(
-                (a.get("author") or {}).get("display_name", "")
-                for a in r.get("authorships", []) if a.get("author")),
-            "year": int(year) if year else None,
-            "doi": doi,
-            "url": f"https://doi.org/{doi}" if doi else (r.get("id", "") or ""),
-            "source": ((r.get("primary_location") or {}).get("source") or {})
-                      .get("display_name", "") or "",
-            "database": "openalex",
-        }))
-    return total, records
+    return total, [_openalex_record(r) for r in data.get("results", [])]
+
+
+# ── Snowball (citation chasing, OpenAlex) ──────────────────────────────────────
+
+SNOWBALL_DIRECTIONS = ("citing", "cited")
+
+
+def snowball_openalex(doi: str, direction: str, limit: int) -> tuple[int, list[dict]]:
+    """Citation chasing on a pivot DOI. direction='citing' returns works that
+    cite the pivot (forward — where replications and rebuttals live);
+    direction='cited' returns the pivot's own references (backward). Sorted by
+    citation count so the influential answers surface first."""
+    if direction not in SNOWBALL_DIRECTIONS:
+        raise SearchError(f"direction must be one of {SNOWBALL_DIRECTIONS}")
+    doi = (doi or "").strip().replace("https://doi.org/", "")
+    if not doi:
+        raise SearchError("snowball needs a DOI — records with url: keys "
+                          "cannot be chased through OpenAlex")
+    pivot = _openalex_get(f"/doi:{quote_plus(doi)}")
+    work_id = (pivot.get("id") or "").rsplit("/", 1)[-1]
+    if not work_id:
+        raise SearchError(f"OpenAlex has no work for DOI {doi}")
+    filt = f"cites:{work_id}" if direction == "citing" else f"cited_by:{work_id}"
+    params = urlencode({"filter": filt, "per-page": limit,
+                        "sort": "cited_by_count:desc"})
+    data = _openalex_get(f"?{params}")
+    total = data.get("meta", {}).get("count", 0)
+    return total, [_openalex_record(r) for r in data.get("results", [])]
 
 
 # ── Dispatch ───────────────────────────────────────────────────────────────────

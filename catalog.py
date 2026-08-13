@@ -53,8 +53,9 @@ def build_catalog() -> list[Piece]:
 
     pieces: list[Piece] = []
 
-    tool_fns = [mcp_app.start_run, mcp_app.search, mcp_app.get_fulltext,
-                mcp_app.log_selection, mcp_app.log_verification, mcp_app.finish_run]
+    tool_fns = [mcp_app.start_run, mcp_app.search, mcp_app.snowball,
+                mcp_app.get_fulltext, mcp_app.log_selection,
+                mcp_app.log_verification, mcp_app.finish_run]
     for fn in tool_fns:
         pieces.append(Piece(
             name=fn.__name__, kind="tool",

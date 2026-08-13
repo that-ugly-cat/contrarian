@@ -27,7 +27,7 @@ def _p(name: str, version: str, title: str, text: str) -> dict:
 
 
 FORMULATE_QUERIES = _p(
-    "formulate_queries", "1.0.0", "Claim → search queries (pro + steelman contra)",
+    "formulate_queries", "1.1.0", "Claim → search queries (pro + steelman contra)",
     """
 You are formulating literature search queries to verify a claim.
 
@@ -43,21 +43,25 @@ Produce TWO sets of queries:
 
 Rules:
 - Default database is PubMed: use Boolean blocks, MeSH terms where apt, field
-  tags ([tiab], [Mesh]). For OpenAlex use plain keyword phrases (free text,
-  no MeSH). For Europe PMC never use MESH: — map MeSH headings to KW: instead
-  (the MESH: field breaks on multi-word headings).
+  tags ([tiab], [Mesh]). For Europe PMC never use MESH: — map MeSH headings
+  to KW: instead (the MESH: field breaks on multi-word headings).
+- OpenAlex ANDs every word of the query: 2–4 core keywords, no more. Each
+  extra word narrows the search — a natural-language sentence returns zero.
 - Build synonym OR-blocks for the core concepts; do not over-constrain.
 - No year window unless the claim is intrinsically time-bound.
 - Expect to iterate: the search tool returns the total hit count. ~0 hits
   means too narrow, tens of thousands means too broad. Refine and retry.
+- If the claim originates from (or names) an identifiable paper, plan a
+  snowball on it besides the keyword queries: works CITING the pivot are
+  where replications and rebuttals live — the highest-yield contra move.
 
 Return: the steelman statement, then each query labelled with its stance
-(pro/contra) and target database.
+(pro/contra) and target database (or snowball + pivot DOI + direction).
 """)
 
 
 SELECT_RECORDS = _p(
-    "select_records", "1.0.0", "Records → shortlist for full-text reading",
+    "select_records", "1.1.0", "Records → shortlist for full-text reading",
     """
 You are screening search results (title + abstract) to decide which papers
 deserve full-text reading for the claim below.
@@ -77,6 +81,10 @@ Rules:
   would not actually read is noise in the trace.
 - An abstract that already contradicts the batch stance is still selectable —
   evidence goes where it goes, not where the query pointed.
+- A record flagged possible_duplicate_of is the same paper under another DOI
+  (publisher copy vs preprint sibling). Shortlist ONE copy: prefer the
+  version of record for citing, but note that the sibling is often the
+  retrievable full text when the publisher copy is paywalled.
 - Log every selection with one reason, and log notable exclusions (papers that
   look topical but fail a criterion) with theirs — the trace must show why the
   shortlist is what it is.
@@ -145,7 +153,7 @@ Return: the dossier, verdict first.
 
 
 VERIFY_CLAIM = _p(
-    "verify_claim", "1.1.0", "Master protocol — full claim verification run",
+    "verify_claim", "1.2.0", "Master protocol — full claim verification run",
     """
 Run a full Contrarian verification of a claim against the scientific
 literature. You orchestrate; the server searches, retrieves and logs. Every
@@ -159,6 +167,11 @@ THE CLAIM: {claim}
 3. SEARCH — call search() for each query (both stances, PubMed first, other
    databases when coverage demands it). Use the returned total to iterate on
    bad queries. Search the contra stance with the same effort as the pro.
+   When a pivotal paper surfaces (or the claim names one), call
+   snowball(run_id, doi, 'citing', stance) on it: replications and rebuttals
+   cite the paper they answer, and keyword queries routinely miss them.
+   Records flagged possible_duplicate_of are the same paper under another
+   DOI — treat them as one.
 4. SELECT — follow prompt select_records; log shortlist and notable
    exclusions with log_selection().
 5. READ — for each selected record call get_fulltext(doi). If retrieval fails

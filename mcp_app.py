@@ -1,6 +1,6 @@
 """The MCP surface — what a model in conversation can actually do.
 
-Six tools and five prompts, built with the official MCP Python SDK (FastMCP),
+Seven tools and five prompts, built with the official MCP Python SDK (FastMCP),
 served over streamable HTTP at /mcp behind the X-API-Key check.
 
 The tools are deliberately narrow. The server searches, retrieves and logs;
@@ -17,6 +17,7 @@ MAX_FULLTEXT_CHARS caps what get_fulltext returns into context; the cut is
 declared in the payload (truncated: true), never silent.
 """
 import json
+import re
 
 from mcp.server.mcpserver import MCPServer
 
@@ -28,6 +29,30 @@ from models import (Run, SessionLocal, get_run, log_event, records_by_key,
                     run_stats, utcnow)
 
 MAX_FULLTEXT_CHARS = 150_000
+
+_TITLE_WORDS = re.compile(r"[a-z0-9]+")
+
+
+def _norm_title(title: str) -> str:
+    return " ".join(_TITLE_WORDS.findall((title or "").lower()))
+
+
+def _flag_duplicates(records: list, known: dict) -> None:
+    """Mark records whose normalized title matches one already seen in this
+    run (or earlier in the same batch) with possible_duplicate_of — publisher
+    copies and preprint siblings of the same paper should be shortlisted once,
+    not twice, and the OA sibling is often the retrievable one."""
+    titles = {_norm_title(r.get("title")): k
+              for k, r in known.items() if _norm_title(r.get("title"))}
+    for rec in records:
+        t = _norm_title(rec.get("title"))
+        if not t:
+            continue
+        prior = titles.get(t)
+        if prior and prior != rec["key"]:
+            rec["possible_duplicate_of"] = prior
+        else:
+            titles.setdefault(t, rec["key"])
 
 mcp = MCPServer(
     "contrarian",
@@ -45,7 +70,9 @@ def _fail(msg: str) -> dict:
 @mcp.tool()
 def start_run(claim: str) -> dict:
     """Open a verification run for a claim. Returns run_id (pass it to every
-    later call) and the protocol versions this run is stamped with. One run =
+    later call), the protocol versions this run is stamped with, and the full
+    verification protocol to follow — inlined because not every MCP client can
+    fetch prompts/get, and an unread protocol is an unfollowed one. One run =
     one claim = one trace page."""
     claim = (claim or "").strip()
     if not claim:
@@ -56,8 +83,9 @@ def start_run(claim: str) -> dict:
                   protocol_versions=json.dumps(prompts.versions()))
         db.add(run)
         db.commit()
+        protocol = prompts.get("verify_claim")["text"].replace("{claim}", claim)
         return {"run_id": run.id, "protocol_versions": prompts.versions(),
-                "next": "formulate pro + steelman-contra queries, then search()"}
+                "protocol": protocol}
     finally:
         db.close()
 
@@ -71,8 +99,10 @@ def search(run_id: str, database: str, query: str, stance: str,
     database: pubmed | europepmc | openalex (native query syntax each).
     stance: pro | contra — which side of the claim this query serves.
     Returns the database's total hit count plus up to `limit` relevance-ranked
-    records, each with a `key` usable in [R:key] citation tokens. On a syntax
-    error the database's own complaint comes back — fix the query and retry."""
+    records, each with a `key` usable in [R:key] citation tokens. A record
+    whose title matches one already seen carries possible_duplicate_of —
+    shortlist one copy only. On a syntax error the database's own complaint
+    comes back — fix the query and retry."""
     db = SessionLocal()
     try:
         run = get_run(db, run_id)
@@ -89,11 +119,50 @@ def search(run_id: str, database: str, query: str, stance: str,
             return _fail(str(exc))
         for rec in result["records"]:
             rec["key"] = references.record_key(rec)
+        _flag_duplicates(result["records"], records_by_key(run))
         log_event(db, run, "search",
                   {"database": database, "query": query, "stance": stance,
                    "total": result["total"], "returned": len(result["records"]),
                    "records": result["records"]})
         return {"total": result["total"], "records": result["records"]}
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def snowball(run_id: str, doi: str, direction: str, stance: str,
+             limit: int = 25) -> dict:
+    """Citation chasing on a pivot paper (OpenAlex). direction: citing —
+    works that cite the pivot (forward: replications and rebuttals cite the
+    paper they answer, so this is the strongest contra move when the claim
+    originates from a known paper) | cited — the pivot's own references
+    (backward). stance: pro | contra, as in search(). Results are logged as a
+    search event, so their keys are citable like any other record and carry
+    the same possible_duplicate_of flags."""
+    db = SessionLocal()
+    try:
+        run = get_run(db, run_id)
+        if run is None:
+            return _fail(f"unknown run_id {run_id}")
+        if stance not in ("pro", "contra"):
+            return _fail("stance must be 'pro' or 'contra'")
+        query = f"snowball:{direction}:{doi}"
+        try:
+            limit = max(1, min(int(limit), sources.MAX_LIMIT))
+            total, records = sources.snowball_openalex(doi, direction, limit)
+        except sources.SearchError as exc:
+            log_event(db, run, "search",
+                      {"database": "openalex", "query": query, "stance": stance,
+                       "error": str(exc)})
+            return _fail(str(exc))
+        for rec in records:
+            rec["key"] = references.record_key(rec)
+        _flag_duplicates(records, records_by_key(run))
+        log_event(db, run, "search",
+                  {"database": "openalex", "query": query, "stance": stance,
+                   "total": total, "returned": len(records),
+                   "records": records})
+        return {"total": total, "records": records}
     finally:
         db.close()
 
