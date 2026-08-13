@@ -34,11 +34,13 @@ def _doc(obj) -> str:
 
 
 def _first_line(text: str) -> str:
-    for line in text.splitlines():
-        line = line.strip()
-        if line:
-            return line.rstrip(".")
-    return ""
+    """First sentence of the first paragraph — card summaries must not cut
+    mid-thought."""
+    para = text.split("\n\n")[0].replace("\n", " ").strip()
+    for stop in (". ", ".\n"):
+        if stop in para:
+            return para.split(stop)[0]
+    return para.rstrip(".")
 
 
 def build_catalog() -> list[Piece]:

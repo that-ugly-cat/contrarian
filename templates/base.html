@@ -3,86 +3,128 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Contrarian{% endblock %}</title>
+<title>{% block title %}Contrarian — contrarian.borant.eu{% endblock %}</title>
 <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg: #faf9f6; --fg: #1a1a1a; --muted: #666; --card: #ffffff;
-  --border: #ddd; --accent: #8a1f1f; --code-bg: #f4f2ee; --ok: #2e7d32;
+  --bg: #0f1117; --card: #1a1d27; --border: #2d3148; --border-hi: #4a6fa5;
+  --fg: #e2e8f0; --muted: #718096; --faint: #4a5568; --label: #a0aec0;
+  --accent: #63b3ed; --accent-dim: #4a6fa5; --btn: #0a3c8a; --btn-hover: #0d4fa8;
+  --err: #fc8181; --err-bg: #2d1515; --err-border: #7b2020; --ok: #68d391;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16161a; --fg: #e8e6e3; --muted: #999; --card: #1f1f24;
-    --border: #333; --accent: #d4766a; --code-bg: #121215; --ok: #7cb342;
-  }
-}
-* { box-sizing: border-box; }
 body {
-  margin: 0; background: var(--bg); color: var(--fg);
-  font: 16px/1.6 Georgia, 'Times New Roman', serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg); color: var(--fg); min-height: 100vh; line-height: 1.6;
 }
 header {
-  border-bottom: 1px solid var(--border); padding: 1rem 2rem;
-  display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap;
+  display: flex; align-items: baseline; gap: 1.2rem; flex-wrap: wrap;
+  padding: 1.1rem 2.5rem; border-bottom: 1px solid #1e2235;
 }
-header h1 { font-size: 1.3rem; margin: 0; }
-header h1 a { color: var(--fg); text-decoration: none; }
-header .tagline { color: var(--muted); font-style: italic; font-size: .95rem; }
-nav { margin-left: auto; display: flex; gap: 1rem; font-size: .9rem; }
-nav a { color: var(--accent); text-decoration: none; }
-main { max-width: 62rem; margin: 0 auto; padding: 2rem; }
+.brand { font-size: 1.25rem; font-weight: 900; letter-spacing: -0.02em; }
+.brand a { color: var(--fg); text-decoration: none; }
+.brand span { color: var(--accent); }
+.tagline-top { font-size: 0.82rem; color: var(--muted); }
+nav { margin-left: auto; display: flex; gap: 1.1rem; font-size: 0.82rem; font-weight: 600; }
+nav a { color: var(--accent-dim); text-decoration: none; }
+nav a:hover { color: var(--accent); }
+main { max-width: 66rem; margin: 0 auto; padding: 2.2rem 2.5rem 3rem; }
 footer {
-  border-top: 1px solid var(--border); color: var(--muted);
-  font-size: .8rem; padding: 1rem 2rem; margin-top: 3rem;
+  border-top: 1px solid #1e2235; color: var(--faint); font-size: 0.72rem;
+  line-height: 1.7; padding: 1.1rem 2.5rem; margin-top: 3rem;
 }
-footer code { font-size: .8rem; }
+footer a { color: var(--accent-dim); text-decoration: none; }
+footer a:hover { color: var(--accent); }
+footer code { font-size: 0.72rem; }
 a { color: var(--accent); }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 1rem; }
-.card {
-  background: var(--card); border: 1px solid var(--border); border-radius: 6px;
-  padding: 1rem 1.2rem; display: block; text-decoration: none; color: var(--fg);
-}
-.card:hover { border-color: var(--accent); }
-.card h3 { margin: 0 0 .3rem; font-size: 1.05rem; }
-.card p { margin: 0; color: var(--muted); font-size: .9rem; }
-.badge {
-  display: inline-block; font: .7rem/1.4 monospace; padding: 0 .5em;
-  border: 1px solid var(--border); border-radius: 3px; color: var(--muted);
-  margin-bottom: .5rem; text-transform: uppercase; letter-spacing: .05em;
-}
-.badge.tool { border-color: var(--accent); color: var(--accent); }
-.badge.prompt { border-color: var(--ok); color: var(--ok); }
-pre {
-  background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
-  padding: 1rem; overflow-x: auto; font-size: .82rem; line-height: 1.5;
-}
-code { font-family: ui-monospace, Consolas, monospace; }
-.recap { white-space: pre-wrap; background: var(--card); border-left: 3px solid var(--accent);
-  padding: .8rem 1.2rem; margin: 1rem 0; font-size: .95rem; }
-table { border-collapse: collapse; width: 100%; font-size: .9rem; }
-th, td { text-align: left; padding: .5rem .8rem; border-bottom: 1px solid var(--border); }
-th { color: var(--muted); font-weight: normal; font-variant: small-caps; }
-input[type=text], input[type=password] {
-  background: var(--card); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: .4rem .6rem; font-size: .95rem;
-}
-button {
-  background: var(--accent); color: #fff; border: 0; border-radius: 4px;
-  padding: .4rem 1rem; cursor: pointer; font-size: .9rem;
-}
+h2 { font-size: 1.05rem; font-weight: 700; margin: 2.2rem 0 0.5rem; }
+h3 { font-size: 0.92rem; font-weight: 700; margin: 1.6rem 0 0.5rem; color: var(--label); }
+p { font-size: 0.9rem; }
+.lead { font-size: 0.95rem; color: var(--muted); line-height: 1.75; max-width: 44rem; }
 .muted { color: var(--muted); }
-.event { border: 1px solid var(--border); border-radius: 6px; margin: .8rem 0;
-  background: var(--card); }
-.event summary { padding: .6rem 1rem; cursor: pointer; }
+.faint { color: var(--faint); }
+
+.pillars { display: flex; flex-direction: column; gap: 1.1rem; max-width: 560px; margin: 1.8rem 0 0.5rem; }
+.pillar { display: flex; gap: 0.9rem; align-items: flex-start; }
+.pillar-icon {
+  flex-shrink: 0; width: 34px; height: 34px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.95rem; font-weight: 700; color: var(--accent);
+}
+.pillar-text strong { display: block; color: var(--fg); font-size: 0.88rem; margin-bottom: 0.2rem; }
+.pillar-text span { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr)); gap: 0.9rem; margin-top: 0.9rem; }
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.9rem 1.1rem; display: block; text-decoration: none; color: var(--fg);
+}
+.card:hover { border-color: var(--border-hi); }
+.card h3 { margin: 0.35rem 0 0.2rem; font-size: 0.92rem; color: var(--fg); }
+.card p { margin: 0; color: var(--muted); font-size: 0.78rem; line-height: 1.5; }
+.badge {
+  display: inline-block; font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.5em;
+  border: 1px solid var(--border); border-radius: 4px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.badge.tool { border-color: var(--accent-dim); color: var(--accent); }
+.badge.prompt { border-color: #2f855a; color: var(--ok); }
+
+pre {
+  background: #0c0e13; border: 1px solid var(--border); border-radius: 8px;
+  padding: 1rem 1.2rem; overflow-x: auto; font-size: 0.78rem; line-height: 1.55;
+}
+code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85em; color: var(--label); }
+.recap {
+  white-space: pre-wrap; background: var(--card); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-dim); border-radius: 0 8px 8px 0;
+  padding: 0.9rem 1.2rem; margin: 0.8rem 0; font-size: 0.85rem; line-height: 1.65; color: var(--label);
+}
+table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+th, td { text-align: left; padding: 0.5rem 0.8rem; border-bottom: 1px solid #1e2235; }
+th { color: var(--faint); font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
+td a { text-decoration: none; }
+td a:hover { text-decoration: underline; }
+
+label { display: block; font-size: 0.75rem; color: var(--label); margin: 0.9rem 0 0.3rem; }
+input[type=text], input[type=password] {
+  padding: 0.55rem 0.8rem; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--fg); font-size: 0.88rem; outline: none;
+}
+input:focus { border-color: var(--accent-dim); }
+button {
+  padding: 0.5rem 1.1rem; background: var(--btn); color: #fff; border: none;
+  border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+button:hover { background: var(--btn-hover); }
+.error {
+  margin: 1rem 0; padding: 0.6rem 0.8rem; background: var(--err-bg);
+  border: 1px solid var(--err-border); border-radius: 6px; font-size: 0.82rem; color: var(--err);
+}
+.warn { color: var(--err); }
+
+.event { border: 1px solid var(--border); border-radius: 8px; margin: 0.7rem 0; background: var(--card); font-size: 0.85rem; }
+.event summary { padding: 0.6rem 1rem; cursor: pointer; }
+.event summary:hover { color: var(--accent); }
 .event .body { padding: 0 1rem 1rem; }
-.verdict { font-variant: small-caps; letter-spacing: .05em; }
-blockquote { border-left: 3px solid var(--border); margin: .5rem 0; padding: .2rem 1rem;
-  color: var(--muted); font-style: italic; }
+.verdict { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.9em; }
+blockquote {
+  border-left: 3px solid var(--border-hi); margin: 0.6rem 0; padding: 0.3rem 1rem;
+  color: var(--label); font-style: italic; font-size: 0.85rem;
+}
+.login-card {
+  max-width: 360px; margin: 3rem auto; background: var(--card);
+  border: 1px solid var(--border); border-radius: 10px; padding: 1.8rem;
+}
+.login-card .title { font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem; }
+.login-card .sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.6rem; line-height: 1.55; }
+@media (max-width: 700px) { header, main, footer { padding-left: 1.2rem; padding-right: 1.2rem; } }
 </style>
 </head>
 <body>
 <header>
-  <h1><a href="/">Contrarian</a></h1>
-  <span class="tagline">claim verification with the reasoning kept visible</span>
+  <div class="brand"><a href="/"><span>Contra</span>rian</a></div>
+  <span class="tagline-top">claim verification with the reasoning kept visible</span>
   <nav>
     <a href="/">catalog</a>
     {% if is_admin %}<a href="/runs">traces</a><a href="/admin">keys</a><a href="/logout">logout</a>
@@ -91,9 +133,11 @@ blockquote { border-left: 3px solid var(--border); margin: .5rem 0; padding: .2r
 </header>
 <main>{% block content %}{% endblock %}</main>
 <footer>
-  what you read here is what runs — deployed commit <code>{{ commit }}</code>
-  · source: <a href="https://github.com/that-ugly-cat/contrarian">github.com/that-ugly-cat/contrarian</a>
-  · a <a href="https://borant.eu">borant</a> tool
+  what you read here is what runs — deployed commit <code>{{ commit }}</code><br>
+  source: <a href="https://github.com/that-ugly-cat/contrarian">github.com/that-ugly-cat/contrarian</a>
+  · built on <a href="https://github.com/that-ugly-cat/lssr">LSSR</a> and
+  <a href="https://paper2md.borant.eu">paper2md</a>
+  · a <a href="https://borant.eu">borant</a> tool · AGPL-3.0
 </footer>
 </body>
 </html>
