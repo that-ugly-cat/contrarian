@@ -102,6 +102,9 @@ def search(run_id: str, database: str, query: str, stance: str,
 def get_fulltext(run_id: str, doi: str) -> dict:
     """Retrieve one paper's full text as markdown, walking the OA ladder
     (Europe PMC XML → OA PDFs via paper2md → landing pages → publisher TDM).
+    Every retrieved text is verified against the record's title before being
+    trusted — OA metadata sometimes points a DOI at a different paper's
+    repository deposit, and a mismatched candidate is discarded with a note.
     Logs the outcome (never the text) to the trace. status: ok | url_only
     (only a link found — a human can fetch it manually) | failed."""
     db = SessionLocal()
@@ -109,11 +112,14 @@ def get_fulltext(run_id: str, doi: str) -> dict:
         run = get_run(db, run_id)
         if run is None:
             return _fail(f"unknown run_id {run_id}")
-        result = ft.retrieve(doi)
+        rec = records_by_key(run).get((doi or "").strip().lower())
+        result = ft.retrieve(doi, expected_title=(rec or {}).get("title"))
         log_event(db, run, "fulltext",
                   {"doi": doi, "status": result["status"],
                    "provider": result["provider"], "url": result["url"],
-                   "chars": result["chars"], "notes": result["notes"]})
+                   "chars": result["chars"],
+                   "title_verified": result["title_verified"],
+                   "notes": result["notes"]})
         md = result.pop("markdown")
         if len(md) > MAX_FULLTEXT_CHARS:
             result["truncated"] = True

@@ -64,6 +64,7 @@ run <code>{{ run.id }}</code> · started {{ run.created_at.strftime("%Y-%m-%d %H
   {% elif e.kind == "fulltext" %}
     {% if e.data.url %}<p><a href="{{ e.data.url }}">{{ e.data.url }}</a></p>{% endif %}
     {% if e.data.chars %}<p class="muted">{{ e.data.chars }} chars retrieved (text not stored — see fulltext piece page)</p>{% endif %}
+    {% if e.data.title_verified == "unverified" %}<p class="warn">⚠ content not verified against the record's title</p>{% endif %}
     {% for n in e.data.notes %}<p class="muted">note: {{ n }}</p>{% endfor %}
   {% elif e.kind == "verification" %}
     {% if e.data.unknown_key %}<p style="color:var(--accent)">⚠ key never seen in this run's searches</p>{% endif %}

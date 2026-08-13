@@ -21,6 +21,16 @@ The ladder, in order of preference:
 
 PDFs are converted through paper2md (references stripped — the model reads the
 article, not its bibliography).
+
+**Content verification.** OA location metadata is dirty: Unpaywall and
+OpenAlex sometimes declare a repository deposit (Zenodo, most often) that is a
+*different* paper as the OA copy of a DOI. So the ladder never trusts a
+retrieval: every converted text is checked against the expected title of the
+requested record (word-overlap against the document head), and a candidate
+that does not match is discarded with a note — the ladder moves on. The
+expected title comes from the caller (the run's own search records) or, as a
+fallback, from Crossref; when no title can be found the result is flagged
+title_verified: "unverified" rather than silently trusted.
 """
 import os
 import re
@@ -344,28 +354,96 @@ def pdf_to_markdown(pdf_bytes: bytes) -> str:
     return data.get("markdown") or data.get("text") or ""
 
 
+# ── Content verification ───────────────────────────────────────────────────────
+
+_WORD = re.compile(r"[a-z0-9]+")
+LINE_THRESHOLD = 0.65   # sequence similarity: title vs a head line (or 2–3 joined)
+BAG_THRESHOLD = 0.90    # fallback: near-total word coverage across the head
+
+
+def _crossref_title(doi: str) -> str | None:
+    try:
+        r = _get(f"https://api.crossref.org/works/{quote(doi, safe='')}", timeout=10)
+        if r.status_code == 200:
+            titles = (r.json().get("message") or {}).get("title") or []
+            return titles[0] if titles else None
+    except Exception:
+        pass
+    return None
+
+
+def title_matches(md: str, title: str) -> bool:
+    """Does this text plausibly belong to a record with this title?
+
+    Bag-of-words overlap is NOT enough here: within one literature the generic
+    domain words (vitamin, common, cold…) appear in every paper, so a short
+    title can 'match' a different paper entirely — the exact failure observed
+    with Zenodo deposits. So the primary test demands the title as a
+    contiguous thing: some line of the document head (or 2–3 adjacent lines,
+    for wrapped titles) must contain the normalized title verbatim or resemble
+    it by sequence similarity. Near-total word coverage (90%) remains as a
+    fallback for heavily mangled front matter."""
+    from difflib import SequenceMatcher
+    tnorm = " ".join(_WORD.findall(title.lower()))
+    if len(tnorm) < 12:
+        return True                      # too short to verify meaningfully
+    head = md[:3000].lower()
+    lines = [" ".join(_WORD.findall(l)) for l in head.splitlines()]
+    lines = [l for l in lines if l]
+    for i in range(len(lines)):
+        for j in (1, 2, 3):
+            cand = " ".join(lines[i:i + j])
+            if tnorm in cand:
+                return True
+            if SequenceMatcher(None, tnorm, cand).ratio() >= LINE_THRESHOLD:
+                return True
+    words = [w for w in tnorm.split() if len(w) > 3]
+    if not words:
+        return True
+    headwords = " ".join(_WORD.findall(head))
+    hits = sum(1 for w in words if w in headwords)
+    return hits / len(words) >= BAG_THRESHOLD
+
+
 # ── The ladder ─────────────────────────────────────────────────────────────────
 
-def retrieve(doi: str) -> dict:
+def retrieve(doi: str, expected_title: str | None = None) -> dict:
     """Walk the ladder for one DOI. Returns:
       {"status": "ok"|"url_only"|"failed", "markdown": str, "provider": str,
-       "url": str, "chars": int, "notes": [str]}
-    On "url_only" the best OA link seen is returned so a human can fetch it
+       "url": str, "chars": int, "title_verified": True|"unverified",
+       "notes": [str]}
+    Every candidate that converts is checked against `expected_title` (falling
+    back to Crossref when the caller has none): a text that does not match the
+    requested record is discarded with a note and the ladder continues. On
+    "url_only" the best OA link seen is returned so a human can fetch it
     manually; the markdown is empty."""
     doi = (doi or "").strip().replace("https://doi.org/", "")
     notes: set = set()
     if not doi:
         return {"status": "failed", "markdown": "", "provider": "", "url": "",
-                "chars": 0, "notes": ["no DOI given"]}
+                "chars": 0, "title_verified": "unverified", "notes": ["no DOI given"]}
     email = os.environ.get("UNPAYWALL_EMAIL", "contrarian@borant.eu").strip()
+
+    expected = (expected_title or "").strip() or _crossref_title(doi)
+    if not expected:
+        notes.add("no expected title available — retrieved content could not be verified")
+
+    def _accept(md: str, provider: str, url: str) -> dict | None:
+        if expected and not title_matches(md, expected):
+            notes.add(f"discarded {provider} candidate — content does not match "
+                      f"the requested record's title: {url}")
+            return None
+        return {"status": "ok", "markdown": md, "provider": provider, "url": url,
+                "chars": len(md),
+                "title_verified": True if expected else "unverified",
+                "notes": sorted(notes)}
 
     fallback = None
     for kind, url in candidates(doi, email):
         if kind == "xml":
             md = _fetch_jats(url)
-            if md:
-                return {"status": "ok", "markdown": md, "provider": "europepmc_xml",
-                        "url": url, "chars": len(md), "notes": sorted(notes)}
+            if md and (r := _accept(md, "europepmc_xml", url)):
+                return r
             continue
         pdf = None
         if kind == "pdf":
@@ -382,25 +460,23 @@ def retrieve(doi: str) -> dict:
             except RuntimeError as exc:
                 notes.add(str(exc))
                 continue
-            if md:
-                return {"status": "ok", "markdown": md, "provider": "oa_pdf+paper2md",
-                        "url": url, "chars": len(md), "notes": sorted(notes)}
+            if md and (r := _accept(md, "oa_pdf+paper2md", url)):
+                return r
 
     md, pdf = publisher_fulltext(doi, notes)
-    if md:
-        return {"status": "ok", "markdown": md, "provider": "publisher_tdm",
-                "url": f"https://doi.org/{doi}", "chars": len(md), "notes": sorted(notes)}
+    if md and (r := _accept(md, "publisher_tdm", f"https://doi.org/{doi}")):
+        return r
     if pdf:
         try:
             md = pdf_to_markdown(pdf)
-            if md:
-                return {"status": "ok", "markdown": md, "provider": "publisher_tdm+paper2md",
-                        "url": f"https://doi.org/{doi}", "chars": len(md), "notes": sorted(notes)}
+            if md and (r := _accept(md, "publisher_tdm+paper2md", f"https://doi.org/{doi}")):
+                return r
         except RuntimeError as exc:
             notes.add(str(exc))
 
     if fallback:
         return {"status": "url_only", "markdown": "", "provider": "",
-                "url": fallback, "chars": 0, "notes": sorted(notes)}
+                "url": fallback, "chars": 0, "title_verified": "unverified",
+                "notes": sorted(notes)}
     return {"status": "failed", "markdown": "", "provider": "", "url": "",
-            "chars": 0, "notes": sorted(notes)}
+            "chars": 0, "title_verified": "unverified", "notes": sorted(notes)}

@@ -96,7 +96,7 @@ async def api_search(request: Request):
 @app.post("/api/fulltext")
 async def api_fulltext(request: Request):
     body = await request.json()
-    return ft.retrieve(body.get("doi", ""))
+    return ft.retrieve(body.get("doi", ""), expected_title=body.get("title"))
 
 
 @app.get("/health")
