@@ -30,6 +30,123 @@ of what it does.
   </div>
 </div>
 
+<div class="explainers">
+  <details class="explainer">
+    <summary><span class="badge plain">plain words</span> How this works, and why it's built this way</summary>
+    <div class="body">
+      <p><strong>The problem.</strong> Ask an AI chatbot whether a claim is true
+      and two things can go wrong. It answers from memory — which may be stale,
+      partial, or wrong. And when you ask for sources, it can produce references
+      that don't exist: authors, years, journals, all plausible, all invented.
+      This isn't lying in the human sense. A language model is a prediction
+      machine, and a plausible-looking citation is easy to predict — the model
+      has no built-in way to tell the reference it remembers from the reference
+      it just made up.</p>
+      <p><strong>The fix is architectural, not behavioral.</strong> Contrarian
+      doesn't ask the AI to be more careful. It takes the operations where
+      carefulness fails and moves them out of the AI entirely. The AI cannot
+      answer from memory here: it has to actually search scientific databases,
+      actually fetch papers, actually quote them — through the tools on this
+      site. And it never writes a citation by hand: it can only <em>point</em>
+      at a paper its own searches returned, and this server assembles the
+      reference from that paper's real metadata. An invented reference isn't
+      forbidden — it's impossible, the way a vending machine can't sell you
+      a snack that isn't in the machine.</p>
+      <p><strong>The library.</strong> MCP (Model Context Protocol) is the
+      standard plug that lets an AI in a chat window use outside services.
+      Through it, Contrarian works like a specialized library the AI walks
+      into: on the shelves there are <em>toolboxes</em> (search this database,
+      fetch this paper) and <em>instruction manuals</em> (the protocol: how to
+      verify a claim properly, step by step). The librarian — this server —
+      hands out the tools, writes every transaction in a logbook, and types up
+      the bibliography. The visitor — the AI — does the reading and the
+      thinking. Neither can do the other's job, and that's the point.</p>
+      <p><strong>The flow.</strong> State the claim. Formulate the strongest
+      <em>opposite</em> claim a competent critic would defend, and search for
+      both with equal effort. Choose which papers deserve reading, and say why —
+      including what you left out. Read the full texts and pull out verbatim
+      quotes. Grade the verdict: supported, contested, unsupported, or no
+      evidence — and finding nothing is an answer, not a refutation. This is
+      not an invented workflow: it's how a researcher actually verifies a claim,
+      translated into procedure. What the translation buys is stability — the
+      same discipline on every run, no shortcuts on the boring claim, no
+      fatigue on the twentieth paper — and auditability: every step leaves a
+      trace someone else can inspect and disagree with.</p>
+      <p><strong>Who does what.</strong> Everything that is a judgment call —
+      how to phrase a search, which papers matter, what a passage really says,
+      what the verdict is — stays with the AI, in the conversation, where a
+      human can watch and interrupt. Everything that is a matter of record —
+      what the database returned, what the paper's text is, what the citation
+      says — stays with the code, which does the same thing the same way every
+      time. The AI thinks in probabilities; the code keeps the books
+      deterministically. The trace records which was which.</p>
+    </div>
+  </details>
+  <details class="explainer">
+    <summary><span class="badge geek">geek mode</span> Same story, technical register</summary>
+    <div class="body">
+      <p><strong>Architecture.</strong> An MCP server (official Python SDK,
+      streamable HTTP) exposing seven tools and five semantically versioned
+      prompts. Any MCP-capable client — Claude Code, a desktop chat, an agent
+      framework — connects it to a model in conversation. The model
+      orchestrates: it decides <em>what</em> to search and <em>what to
+      conclude</em>. The server executes: query dispatch to PubMed / Europe PMC
+      / OpenAlex in each database's native syntax, citation chasing on a pivot
+      DOI (OpenAlex <code>cites:</code> / <code>cited_by:</code> — replications
+      and rebuttals cite the paper they answer, keyword queries miss them),
+      full-text retrieval up a five-rung OA ladder (Europe PMC JATS → OA PDFs
+      via paper2md → landing-page <code>citation_pdf_url</code> → publisher TDM
+      APIs → same-title OA siblings under another DOI), and an append-only
+      trace: one SQLite event per step, stamped with the protocol versions it
+      ran under.</p>
+      <p><strong>The agency split.</strong> Everything probabilistic runs in
+      the model, in context: query formulation, steelman construction,
+      relevance screening, entailment judgment on quoted passages, verdict
+      grading. Those are judgment calls, so the protocol forces them to be
+      <em>deposited</em> — log_selection and log_verification exist because an
+      unlogged judgment is a judgment that didn't happen. Everything
+      deterministic runs server-side in plain code: API calls, dedup flags,
+      abstract caps, title verification of retrieved texts, citation assembly,
+      run statistics. Those must be reproducible and non-negotiable, so they
+      are never delegated to next-token prediction. In MCP terms the library
+      metaphor is literal: prompts are the instruction manuals, tools are the
+      toolboxes, and the trace UI plays the resource — one source, read three
+      ways.</p>
+      <p><strong>Hallucinated references, killed structurally.</strong> The
+      model never emits author/year/DOI strings. It cites with opaque tokens —
+      <code>[R:10.1126/sciadv.adh1850]</code> — resolved server-side against
+      the closed set of records this run's searches actually returned. A token
+      pointing outside that set fails loudly and is reported as a failure,
+      never rendered as a citation. Two more guards at the same layer:
+      every retrieved full text is verified against the expected record title
+      (contiguous line/sequence match, not bag-of-words — OA repositories
+      sometimes hang the wrong paper on a DOI), and the run statistics appended
+      to every dossier (records seen, full texts read vs. abstract-only
+      judgments) are computed from the trace, never taken from the model's
+      self-report.</p>
+      <p><strong>The protocol is a person, proceduralized.</strong> The
+      verify_claim prompt is a working researcher's actual verification loop —
+      claim → steelman → dual search → reasoned shortlist → verbatim-quote
+      reading → graded verdict — written down as versioned text the server
+      serves to the model (and shows you, unchanged, on this site). Writing it
+      down makes the epistemics stable across runs and moods, inspectable by
+      anyone, and diffable: bump a version, and git history becomes the history
+      of the method. The steelman pass is the load-bearing part: contrary
+      evidence uses different vocabulary than supporting evidence, so a search
+      engine only surfaces it if something forces the queries to speak that
+      vocabulary.</p>
+      <p><strong>In-chat mechanics.</strong> Each tool call round-trips
+      through the server and lands back in the model's context, so context is
+      treated as the scarce resource it is: records come back normalized and
+      capped (declared truncation flags, <code>possible_duplicate_of</code> on
+      same-title records), and full texts are size-limited with the cut
+      declared. Silent truncation is epistemically indistinguishable from
+      coverage — so nothing here truncates silently. The per-run trace page is
+      the audit artifact: everything you need to disagree with the verdict.</p>
+    </div>
+  </details>
+</div>
+
 {% for kind, label, blurb in [
     ("tool", "Tools", "What the model can call. The server searches, retrieves and logs; judgment stays in conversation."),
     ("prompt", "Protocol prompts", "The epistemic rules, versioned. Served to the model via MCP prompts/get — the same text you read here."),

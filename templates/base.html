@@ -54,6 +54,23 @@ p { font-size: 0.9rem; }
 .pillar-text strong { display: block; color: var(--fg); font-size: 0.88rem; margin-bottom: 0.2rem; }
 .pillar-text span { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
 
+.explainers { display: flex; flex-direction: column; gap: 0.7rem; margin: 2rem 0 0.4rem; }
+.explainer { border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.explainer[open] { border-color: var(--border-hi); }
+.explainer summary {
+  padding: 0.75rem 1.1rem; cursor: pointer; font-size: 0.9rem; font-weight: 600;
+  display: flex; align-items: baseline; gap: 0.7rem; list-style: none;
+}
+.explainer summary::-webkit-details-marker { display: none; }
+.explainer summary::before { content: "▸"; color: var(--accent-dim); font-size: 0.8rem; }
+.explainer[open] summary::before { content: "▾"; }
+.explainer summary:hover { color: var(--accent); }
+.explainer .body { padding: 0.1rem 1.2rem 1.1rem 2.1rem; }
+.explainer .body p { font-size: 0.85rem; color: var(--label); line-height: 1.7; margin: 0.7rem 0; max-width: 52rem; }
+.explainer .body strong { color: var(--fg); }
+.badge.plain { border-color: var(--accent-dim); color: var(--accent); }
+.badge.geek { border-color: #2f855a; color: var(--ok); }
+
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr)); gap: 0.9rem; margin-top: 0.9rem; }
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: 8px;
