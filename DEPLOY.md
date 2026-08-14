@@ -42,6 +42,14 @@ extra configuration.
 2. `/admin` → issue an API key.
 3. Register the MCP server in your client:
    `claude mcp add --transport http contrarian https://contrarian.borant.eu/mcp --header "X-API-Key: KEY"`
+
+   Clients that cannot send custom headers (e.g. ChatGPT custom connectors,
+   which accept only OAuth or no-auth) can use the capability-URL variant:
+   register `https://contrarian.borant.eu/mcp/k/KEY` with authentication
+   "none". Same key table, same revocation from /admin — mint a dedicated
+   key per client so it stays individually revocable. The key travels in
+   the URL path, so it may land in access logs: treat it as revocable, not
+   as unexposable.
 4. Smoke test:
    `curl -s -X POST https://contrarian.borant.eu/api/search -H "X-API-Key: KEY" -H "Content-Type: application/json" -d '{"database":"pubmed","query":"aspirin[tiab] AND headache[tiab]","limit":3}'`
 

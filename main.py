@@ -3,8 +3,9 @@ kept visible.
 
 FastAPI app wiring the three surfaces together:
 
-- **/mcp** — the model-facing MCP server (streamable HTTP, X-API-Key), see
-  mcp_app.py;
+- **/mcp** — the model-facing MCP server (streamable HTTP, X-API-Key; the
+  /mcp/k/{key} capability-URL variant carries the same key in the path for
+  clients that cannot send custom headers), see mcp_app.py;
 - **/api** — thin REST mirrors of search and fulltext for scripts and curl
   (same X-API-Key);
 - **the web UI** — public catalog + piece pages (the glass box, see
@@ -69,7 +70,24 @@ app.mount("/mcp", mcp.streamable_http_app(
 @app.middleware("http")
 async def api_key_gate(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/mcp") or path.startswith("/api"):
+    if path.startswith("/mcp/k/"):
+        # Capability-URL variant of the same gate, for clients that cannot send
+        # custom headers (ChatGPT custom connectors accept only OAuth or
+        # no-auth): the key travels as a path segment — /mcp/k/{key}[/...] —
+        # is validated against the same ApiKey table (same revocation, same
+        # last_used_at audit), then stripped so the mounted MCP app sees a
+        # clean /mcp path and stays unaware of how the caller authenticated.
+        key, _, rest = path[len("/mcp/k/"):].partition("/")
+        db = SessionLocal()
+        try:
+            ok = auth.check_api_key(db, key)
+        finally:
+            db.close()
+        if not ok:
+            return JSONResponse({"error": "missing or invalid API key"}, status_code=401)
+        request.scope["path"] = "/mcp/" + rest
+        request.scope["raw_path"] = request.scope["path"].encode()
+    elif path.startswith("/mcp") or path.startswith("/api"):
         key = request.headers.get("X-API-Key", "")
         db = SessionLocal()
         try:
