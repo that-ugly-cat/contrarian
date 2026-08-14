@@ -46,6 +46,10 @@ class Run(Base):
     verdict = Column(String, default="")            # supported | contested | unsupported | no_evidence
     dossier = Column(Text, default="")              # resolved text, references appended
     protocol_versions = Column(Text, default="{}")  # {prompt: version} JSON
+    # Traces are private by default (content, not method). A share token,
+    # deliberately created by the admin, opens ONE run read-only at /r/{token}
+    # — an unguessable capability URL, revocable by clearing the column.
+    share_token = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     finished_at = Column(DateTime, nullable=True)
     events = relationship("RunEvent", back_populates="run",
@@ -74,6 +78,15 @@ def init_db():
     import os
     os.makedirs("data", exist_ok=True)
     Base.metadata.create_all(engine)
+    # Column-level migration for DBs created before share links existed.
+    with engine.connect() as conn:
+        cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runs)")]
+        if "share_token" not in cols:
+            conn.exec_driver_sql("ALTER TABLE runs ADD COLUMN share_token VARCHAR")
+        conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_runs_share_token "
+            "ON runs(share_token)")
+        conn.commit()
 
 
 # ── Trace helpers ──────────────────────────────────────────────────────────────

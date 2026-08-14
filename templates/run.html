@@ -1,13 +1,36 @@
 {% extends "base.html" %}
 {% block title %}trace {{ run.id }} — Contrarian{% endblock %}
 {% block content %}
+{% if public %}
+<p class="muted" style="font-size:.85rem">Shared read-only trace — one verification
+run, published on purpose by the keeper of this instance.
+<a href="/">What is this?</a></p>
+{% else %}
 <p class="muted" style="font-size:.85rem"><a href="/runs">← all traces</a></p>
+{% endif %}
 <h2>“{{ run.claim }}”</h2>
 <p class="muted">
 run <code>{{ run.id }}</code> · started {{ run.created_at.strftime("%Y-%m-%d %H:%M") }}
 · {{ run.status }}{% if run.verdict %} · verdict: <strong class="verdict">{{ run.verdict.replace("_", " ") }}</strong>{% endif %}
 <br>protocol: {% for name, v in versions.items() %}<code>{{ name }}@{{ v }}</code> {% endfor %}
 </p>
+
+{% if is_admin and not public %}
+<div class="share-box">
+  {% if run.share_token %}
+    <span class="badge plain">shared</span>
+    <input type="text" readonly value="{{ share_url }}" onfocus="this.select()">
+    <form method="post" action="/runs/{{ run.id }}/share/revoke">
+      <button type="submit" class="danger">revoke link</button>
+    </form>
+  {% else %}
+    <span class="muted" style="font-size:.8rem">This trace is private.</span>
+    <form method="post" action="/runs/{{ run.id }}/share">
+      <button type="submit">create public share link</button>
+    </form>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if run.dossier %}
 <h3>Dossier</h3>

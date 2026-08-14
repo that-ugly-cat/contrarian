@@ -3,16 +3,17 @@
 <h2>Traces</h2>
 <p class="muted">One run per claim. Click through for the full audit trail.</p>
 <table>
-  <tr><th>started</th><th>claim</th><th>status</th><th>verdict</th></tr>
+  <tr><th>started</th><th>claim</th><th>status</th><th>verdict</th><th>shared</th></tr>
   {% for r in runs %}
   <tr>
     <td class="muted" style="white-space:nowrap">{{ r.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
     <td><a href="/runs/{{ r.id }}">{{ r.claim[:110] }}{% if r.claim|length > 110 %}…{% endif %}</a></td>
     <td>{{ r.status }}</td>
     <td class="verdict">{{ r.verdict.replace("_", " ") or "—" }}</td>
+    <td>{% if r.share_token %}<a href="/r/{{ r.share_token }}" class="badge plain" style="text-decoration:none">public</a>{% else %}<span class="faint">—</span>{% endif %}</td>
   </tr>
   {% else %}
-  <tr><td colspan="4" class="muted">No runs yet.</td></tr>
+  <tr><td colspan="5" class="muted">No runs yet.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

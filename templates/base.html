@@ -118,6 +118,20 @@ button:hover { background: var(--btn-hover); }
   margin: 1rem 0; padding: 0.6rem 0.8rem; background: var(--err-bg);
   border: 1px solid var(--err-border); border-radius: 6px; font-size: 0.82rem; color: var(--err);
 }
+.share-box {
+  display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.6rem 0.9rem; margin: 0.9rem 0;
+}
+.share-box input[type=text] {
+  flex: 1; min-width: 16rem; padding: 0.4rem 0.7rem; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--label);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.76rem;
+}
+.share-box form { margin: 0; }
+.share-box button { font-size: 0.78rem; padding: 0.4rem 0.9rem; }
+button.danger { background: #7b2020; }
+button.danger:hover { background: #963030; }
 .warn { color: var(--err); }
 
 .event { border: 1px solid var(--border); border-radius: 8px; margin: 0.7rem 0; background: var(--card); font-size: 0.85rem; }

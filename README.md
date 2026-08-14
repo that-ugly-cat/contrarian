@@ -34,7 +34,9 @@ under, so a dossier is reproducible: claim + protocol + records seen → verdict
 module: a plain-language recap and its live source (`inspect.getsource()` of
 the running process, never a copy), with the deployed commit hash in the
 footer. Public what is method, private what is content: catalog and prompts
-need no login; traces do.
+need no login; traces do. One deliberate exception: the admin can mint a
+read-only share link for a single trace (`/r/{token}`, unguessable,
+revocable) — a verified claim can then cite its own audit trail.
 
 **Verdicts are graded**: `supported` / `contested` / `unsupported` /
 `no_evidence` — absence of evidence is an outcome, never converted into

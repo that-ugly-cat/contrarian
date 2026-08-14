@@ -8,7 +8,8 @@ FastAPI app wiring the three surfaces together:
 - **/api** — thin REST mirrors of search and fulltext for scripts and curl
   (same X-API-Key);
 - **the web UI** — public catalog + piece pages (the glass box, see
-  catalog.py), trace viewer and admin behind the admin login (see auth.py).
+  catalog.py), trace viewer and admin behind the admin login (see auth.py),
+  plus deliberate per-run share links: /r/{token} shows one trace read-only.
 
 Port 8014. State: data/contrarian.db (API keys + traces only — no full texts).
 """
@@ -167,6 +168,19 @@ def runs(request: Request):
         db.close()
 
 
+def _render_run(request: Request, run: Run, *, is_admin: bool, public: bool):
+    events = [{"seq": e.seq, "kind": e.kind, "at": e.created_at,
+               "data": e.data} for e in run.events]
+    share_url = ""
+    if run.share_token:
+        base = os.environ.get("PUBLIC_URL", "http://localhost:8014").rstrip("/")
+        share_url = f"{base}/r/{run.share_token}"
+    return templates.TemplateResponse(request, "run.html", {
+        "run": run, "events": events,
+        "versions": json.loads(run.protocol_versions or "{}"),
+        "is_admin": is_admin, "public": public, "share_url": share_url})
+
+
 @app.get("/runs/{run_id}", response_class=HTMLResponse)
 def run_detail(request: Request, run_id: str):
     if (r := _require_admin(request)) is not None:
@@ -176,14 +190,59 @@ def run_detail(request: Request, run_id: str):
         run = db.query(Run).filter(Run.id == run_id).first()
         if run is None:
             return RedirectResponse("/runs", status_code=303)
-        events = [{"seq": e.seq, "kind": e.kind, "at": e.created_at,
-                   "data": e.data} for e in run.events]
-        return templates.TemplateResponse(request, "run.html", {
-            "run": run, "events": events,
-            "versions": json.loads(run.protocol_versions or "{}"),
-            "is_admin": True})
+        return _render_run(request, run, is_admin=True, public=False)
     finally:
         db.close()
+
+
+# ── Shared traces (public, read-only, per-run capability URL) ─────────────────
+
+@app.get("/r/{token}", response_class=HTMLResponse)
+def shared_run(request: Request, token: str):
+    """One run, read-only, behind an unguessable token the admin created on
+    purpose. The trace boundary stays: nothing is listed, nothing else is
+    reachable — a revoked token 404s to the catalog."""
+    db = SessionLocal()
+    try:
+        run = db.query(Run).filter(Run.share_token == token,
+                                   Run.share_token.isnot(None)).first()
+        if run is None or not token:
+            return RedirectResponse("/", status_code=303)
+        return _render_run(request, run,
+                           is_admin=auth.is_admin(request), public=True)
+    finally:
+        db.close()
+
+
+@app.post("/runs/{run_id}/share")
+def create_share(request: Request, run_id: str):
+    if (r := _require_admin(request)) is not None:
+        return r
+    import secrets
+    db = SessionLocal()
+    try:
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if run is not None and not run.share_token:
+            run.share_token = secrets.token_urlsafe(16)
+            db.commit()
+    finally:
+        db.close()
+    return RedirectResponse(f"/runs/{run_id}", status_code=303)
+
+
+@app.post("/runs/{run_id}/share/revoke")
+def revoke_share(request: Request, run_id: str):
+    if (r := _require_admin(request)) is not None:
+        return r
+    db = SessionLocal()
+    try:
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if run is not None and run.share_token:
+            run.share_token = None
+            db.commit()
+    finally:
+        db.close()
+    return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
 
 # ── Admin: API keys ────────────────────────────────────────────────────────────
