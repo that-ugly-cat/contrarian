@@ -12,7 +12,8 @@ run, published on purpose by the keeper of this instance.
 <p class="muted">
 run <code>{{ run.id }}</code> · started {{ run.created_at.strftime("%Y-%m-%d %H:%M") }}
 · {{ run.status }}{% if run.verdict %} · verdict: <strong class="verdict">{{ run.verdict.replace("_", " ") }}</strong>{% endif %}
-<br>protocol: {% for name, v in versions.items() %}<code>{{ name }}@{{ v }}</code> {% endfor %}
+<br>{# " v" separator, not "@" — Cloudflare's email obfuscation rewrites name@1.0.0 into an email-protection widget #}
+protocol: {% for name, v in versions.items() %}<code>{{ name }} v{{ v }}</code> {% endfor %}
 </p>
 
 {% if is_admin and not public %}
