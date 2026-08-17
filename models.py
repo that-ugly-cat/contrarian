@@ -35,10 +35,13 @@ class ApiKey(Base):
     active = Column(Boolean, default=True)
     # Subscription full text (Elsevier, Wiley) is reachable only under an
     # institutional licence, and a licence covers *people*, not servers. So the
-    # publisher credentials are not a property of the deployment: a key is
-    # entitled to use them only if its holder is themselves covered. Default
-    # off — issuing a key never hands out institutional access with it.
-    tdm_entitled = Column(Boolean, default=False, nullable=False)
+    # publisher credentials belong to the key rather than to the deployment:
+    # holding them is the entitlement, and a run reaches subscription content
+    # through the credentials of whoever called. Stored Fernet-encrypted and
+    # never rendered back — see credentials.py.
+    elsevier_key = Column(Text, default="")
+    elsevier_insttoken = Column(Text, default="")
+    wiley_token = Column(Text, default="")
     created_at = Column(DateTime, default=utcnow)
     last_used_at = Column(DateTime, nullable=True)
 
@@ -94,12 +97,20 @@ def init_db():
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_runs_share_token "
             "ON runs(share_token)")
         keycols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(api_keys)")]
-        if "tdm_entitled" not in keycols:
-            # Existing keys land on 0: entitlement is granted deliberately,
-            # never inherited by a migration.
-            conn.exec_driver_sql(
-                "ALTER TABLE api_keys ADD COLUMN tdm_entitled BOOLEAN "
-                "NOT NULL DEFAULT 0")
+        # Existing keys land with no credentials: institutional access is
+        # granted deliberately, never inherited by a migration.
+        for col in ("elsevier_key", "elsevier_insttoken", "wiley_token"):
+            if col not in keycols:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE api_keys ADD COLUMN {col} TEXT DEFAULT ''")
+        if "tdm_entitled" in keycols:
+            # Superseded: a boolean said who *may* use the server's shared
+            # credentials, which left the credentials themselves belonging to
+            # the deployment. Holding the credentials is now the entitlement.
+            try:
+                conn.exec_driver_sql("ALTER TABLE api_keys DROP COLUMN tdm_entitled")
+            except Exception:
+                pass    # SQLite < 3.35: harmless once the model stops mapping it
         conn.commit()
 
 

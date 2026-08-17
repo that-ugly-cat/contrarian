@@ -27,15 +27,16 @@ The ladder, in order of preference:
 PDFs are converted through paper2md (references stripped — the model reads the
 article, not its bibliography).
 
-**Entitlement.** An institutional TDM licence (and the Elsevier institutional
-token that implements it) covers the people it names, not whatever server
-their software runs on. Contrarian is multi-client: several API keys can
-reach the same deployment. So the subscription rungs are gated on the caller,
-not on the deployment — `licensed=True` reaches the ladder only for a key the
-admin has marked as entitled, and the default everywhere is False. Springer's
-endpoint is exempt because it serves open-access content only, which nobody
-needs a licence to read. A skipped rung leaves a note in the trace rather
-than failing silently, so an unentitled caller can see *why* a paywalled DOI
+**Whose licence.** An institutional TDM licence (and the Elsevier
+institutional token that implements it) covers the people it names, not
+whatever server their software runs on. Contrarian is multi-client: several
+API keys reach the same deployment. So the subscription rungs do not read
+credentials from the environment at all — they use the `creds` the caller
+brings, carried on their own API key (see credentials.py), and with no
+credentials those rungs are not attempted. Springer is the exception, still
+configured server-side, because its endpoint serves open-access content only
+and nobody needs a licence to read that. A skipped rung leaves a note in the
+trace rather than failing silently, so a caller can see *why* a paywalled DOI
 came back empty.
 
 **Content verification.** OA location metadata is dirty: Unpaywall and
@@ -357,39 +358,38 @@ def _wiley(doi: str, token: str, notes: set) -> bytes | None:
 
 
 def publisher_fulltext(doi: str, notes: set,
-                       licensed: bool = False) -> tuple[str | None, bytes | None]:
+                       creds=None) -> tuple[str | None, bytes | None]:
     """(markdown, pdf_bytes) from whichever publisher owns this DOI prefix.
 
-    Keys come from the environment; a publisher with no key is skipped, so an
-    unconfigured Contrarian never calls out. `licensed` says whether the
-    caller is covered by the institution's TDM licence: without it the two
-    subscription APIs are not called at all, however well configured the
-    server is. Springer's open-access endpoint is not gated — it returns only
-    OA articles."""
+    The two subscription APIs use `creds` — the calling key's own
+    institutional credentials — and are skipped, with a note, when the caller
+    brings none. Springer's open-access key still comes from the environment;
+    it returns OA articles only, so it needs no licence behind it. A publisher
+    with nothing configured is skipped silently, so an unconfigured Contrarian
+    never calls out."""
+    import credentials
+    creds = creds or credentials.NONE
     prefix = doi.split("/")[0]
     if prefix in ELSEVIER_PREFIXES:
-        key = os.environ.get("ELSEVIER_API_KEY", "").strip()
-        if licensed:
-            md = _elsevier(doi, key,
-                           os.environ.get("ELSEVIER_INSTTOKEN", "").strip(), notes)
+        if creds.elsevier_key:
+            md = _elsevier(doi, creds.elsevier_key, creds.elsevier_insttoken, notes)
             if md:
                 return md, None
-        elif key:
-            notes.add("Elsevier TDM not attempted — this API key is not "
-                      "entitled to the institutional licence")
+        else:
+            notes.add("Elsevier not attempted — this API key carries no "
+                      "institutional credentials")
     if prefix in SPRINGER_PREFIXES:
         md = _springer(doi, os.environ.get("SPRINGER_API_KEY", "").strip(), notes)
         if md:
             return md, None
     if prefix in WILEY_PREFIXES:
-        token = os.environ.get("WILEY_TDM_TOKEN", "").strip()
-        if licensed:
-            pdf = _wiley(doi, token, notes)
+        if creds.wiley_token:
+            pdf = _wiley(doi, creds.wiley_token, notes)
             if pdf:
                 return None, pdf
-        elif token:
-            notes.add("Wiley TDM not attempted — this API key is not "
-                      "entitled to the institutional licence")
+        else:
+            notes.add("Wiley not attempted — this API key carries no "
+                      "institutional credentials")
     return None, None
 
 
@@ -473,8 +473,7 @@ def title_matches(md: str, title: str) -> bool:
 
 # ── The ladder ─────────────────────────────────────────────────────────────────
 
-def retrieve(doi: str, expected_title: str | None = None,
-             licensed: bool = False) -> dict:
+def retrieve(doi: str, expected_title: str | None = None, creds=None) -> dict:
     """Walk the ladder for one DOI. Returns:
       {"status": "ok"|"url_only"|"failed", "markdown": str, "provider": str,
        "url": str, "chars": int, "title_verified": True|"unverified",
@@ -485,9 +484,10 @@ def retrieve(doi: str, expected_title: str | None = None,
     "url_only" the best OA link seen is returned so a human can fetch it
     manually; the markdown is empty.
 
-    `licensed` opens the subscription rungs for this call (see Entitlement
-    above). It defaults to False, so a caller that forgets to pass it gets the
-    open-access ladder, never the institution's credentials."""
+    `creds` are the calling key's institutional credentials, which open the
+    subscription rungs (see "Whose licence" above). It defaults to none, so a
+    caller that forgets to pass it walks the open-access ladder rather than
+    borrowing someone else's licence."""
     doi = (doi or "").strip().replace("https://doi.org/", "")
     notes: set = set()
     if not doi:
@@ -534,7 +534,7 @@ def retrieve(doi: str, expected_title: str | None = None,
             if md and (r := _accept(md, "oa_pdf+paper2md", url)):
                 return r
 
-    md, pdf = publisher_fulltext(doi, notes, licensed)
+    md, pdf = publisher_fulltext(doi, notes, creds)
     if md and (r := _accept(md, "publisher_tdm", f"https://doi.org/{doi}")):
         return r
     if pdf:

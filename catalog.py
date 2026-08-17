@@ -45,6 +45,7 @@ def _first_line(text: str) -> str:
 
 def build_catalog() -> list[Piece]:
     import authors
+    import credentials
     import fulltext
     import mcp_app
     import prompts
@@ -72,7 +73,7 @@ def build_catalog() -> list[Piece]:
                   "is stamped into every trace that runs under it.",
             source=p["text"], version=p["version"]))
 
-    for mod in (sources, fulltext, references, authors):
+    for mod in (sources, fulltext, credentials, references, authors):
         pieces.append(Piece(
             name=mod.__name__, kind="library",
             summary=_first_line(_doc(mod)),

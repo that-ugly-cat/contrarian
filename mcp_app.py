@@ -21,7 +21,7 @@ import re
 
 from mcp.server.mcpserver import MCPServer
 
-import auth
+import credentials
 import fulltext as ft
 import prompts
 import references
@@ -178,9 +178,9 @@ def get_fulltext(run_id: str, doi: str) -> dict:
     Logs the outcome (never the text) to the trace. status: ok | url_only
     (only a link found — a human can fetch it manually) | failed.
 
-    The subscription rungs (Elsevier, Wiley) are reached only when the calling
-    API key is entitled to the institution's TDM licence; for everyone else
-    the ladder stops at open access and says so in the notes."""
+    The subscription rungs (Elsevier, Wiley) run on the institutional
+    credentials carried by the calling API key; for a key that has none the
+    ladder stops at open access and says so in the notes."""
     db = SessionLocal()
     try:
         run = get_run(db, run_id)
@@ -188,7 +188,7 @@ def get_fulltext(run_id: str, doi: str) -> dict:
             return _fail(f"unknown run_id {run_id}")
         rec = records_by_key(run).get((doi or "").strip().lower())
         result = ft.retrieve(doi, expected_title=(rec or {}).get("title"),
-                             licensed=auth.caller_is_tdm_entitled())
+                             creds=credentials.caller())
         log_event(db, run, "fulltext",
                   {"doi": doi, "status": result["status"],
                    "provider": result["provider"], "url": result["url"],

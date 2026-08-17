@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 
 import auth
 import catalog
+import credentials
 import fulltext as ft
 import prompts
 import sources
@@ -33,6 +34,8 @@ from models import ApiKey, Run, SessionLocal, init_db
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 templates.env.globals["commit"] = catalog.commit_hash()
+# Which publishers a key can reach — never the credentials themselves.
+templates.env.globals["tdm_summary"] = credentials.summary
 
 
 @contextlib.asynccontextmanager
@@ -81,7 +84,7 @@ async def api_key_gate(request: Request, call_next):
         db = SessionLocal()
         try:
             row = auth.check_api_key(db, key)
-            auth.set_caller_entitlement(row)
+            credentials.set_caller(row)
         finally:
             db.close()
         if not row:
@@ -93,7 +96,7 @@ async def api_key_gate(request: Request, call_next):
         db = SessionLocal()
         try:
             row = auth.check_api_key(db, key)
-            auth.set_caller_entitlement(row)
+            credentials.set_caller(row)
         finally:
             db.close()
         if not row:
@@ -118,7 +121,7 @@ async def api_search(request: Request):
 async def api_fulltext(request: Request):
     body = await request.json()
     return ft.retrieve(body.get("doi", ""), expected_title=body.get("title"),
-                       licensed=auth.caller_is_tdm_entitled())
+                       creds=credentials.caller())
 
 
 @app.get("/health")
@@ -310,18 +313,25 @@ def toggle_key(request: Request, key_id: int):
 
 
 @app.post("/admin/keys/{key_id}/tdm")
-def toggle_tdm(request: Request, key_id: int):
-    """Grant or withdraw this key's use of the server's publisher TDM
-    credentials. A separate switch from active/revoked on purpose: a working
-    key and a licence-covered key are different things, and only the second
-    should ever reach subscription full text."""
+def set_tdm_credentials(request: Request, key_id: int,
+                        elsevier_key: str = Form(""),
+                        elsevier_insttoken: str = Form(""),
+                        wiley_token: str = Form(""),
+                        clear: str = Form("")):
+    """Set this key's institutional TDM credentials. Blank fields leave the
+    stored value alone — the form never shows a credential, so it cannot ask
+    the admin to retype one to keep it — and `clear` wipes all three. Storage
+    and encryption live in credentials.py."""
     if (r := _require_admin(request)) is not None:
         return r
     db = SessionLocal()
     try:
         row = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if row:
-            row.tdm_entitled = not row.tdm_entitled
+            credentials.store(row, {"elsevier_key": elsevier_key,
+                                    "elsevier_insttoken": elsevier_insttoken,
+                                    "wiley_token": wiley_token},
+                              clear=bool(clear))
             db.commit()
     finally:
         db.close()
