@@ -1,0 +1,30 @@
+services:
+  contrarian:
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    ports:
+      - "127.0.0.1:8014:8014"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    cpus: "1.0"        # shared VPS — same courtesy cap as paper2md
+    mem_limit: 512m
+
+# ── paper2md on the same host (optional, deployment-specific) ─────────────────
+# If paper2md runs as a container beside this one, do not point PAPER2MD_URL at
+# its public URL: every conversion would traverse the proxy, and a ~100s edge
+# timeout kills precisely the large PDFs worth converting. Share a network:
+#
+#   docker network create paper2md-shared     # once, on the host
+#
+# uncomment on the service above:
+#   networks: [default, paper2md-shared]
+# and at the end of the file:
+#   networks:
+#     paper2md-shared:
+#       external: true
+#
+# then set PAPER2MD_URL=http://paper2md:8000 in .env.
