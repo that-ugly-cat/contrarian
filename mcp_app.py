@@ -21,6 +21,7 @@ import re
 
 from mcp.server.mcpserver import MCPServer
 
+import auth
 import fulltext as ft
 import prompts
 import references
@@ -175,14 +176,19 @@ def get_fulltext(run_id: str, doi: str) -> dict:
     trusted — OA metadata sometimes points a DOI at a different paper's
     repository deposit, and a mismatched candidate is discarded with a note.
     Logs the outcome (never the text) to the trace. status: ok | url_only
-    (only a link found — a human can fetch it manually) | failed."""
+    (only a link found — a human can fetch it manually) | failed.
+
+    The subscription rungs (Elsevier, Wiley) are reached only when the calling
+    API key is entitled to the institution's TDM licence; for everyone else
+    the ladder stops at open access and says so in the notes."""
     db = SessionLocal()
     try:
         run = get_run(db, run_id)
         if run is None:
             return _fail(f"unknown run_id {run_id}")
         rec = records_by_key(run).get((doi or "").strip().lower())
-        result = ft.retrieve(doi, expected_title=(rec or {}).get("title"))
+        result = ft.retrieve(doi, expected_title=(rec or {}).get("title"),
+                             licensed=auth.caller_is_tdm_entitled())
         log_event(db, run, "fulltext",
                   {"doi": doi, "status": result["status"],
                    "provider": result["provider"], "url": result["url"],

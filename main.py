@@ -80,10 +80,11 @@ async def api_key_gate(request: Request, call_next):
         key, _, rest = path[len("/mcp/k/"):].partition("/")
         db = SessionLocal()
         try:
-            ok = auth.check_api_key(db, key)
+            row = auth.check_api_key(db, key)
+            auth.set_caller_entitlement(row)
         finally:
             db.close()
-        if not ok:
+        if not row:
             return JSONResponse({"error": "missing or invalid API key"}, status_code=401)
         request.scope["path"] = "/mcp/" + rest
         request.scope["raw_path"] = request.scope["path"].encode()
@@ -91,10 +92,11 @@ async def api_key_gate(request: Request, call_next):
         key = request.headers.get("X-API-Key", "")
         db = SessionLocal()
         try:
-            ok = auth.check_api_key(db, key)
+            row = auth.check_api_key(db, key)
+            auth.set_caller_entitlement(row)
         finally:
             db.close()
-        if not ok:
+        if not row:
             return JSONResponse({"error": "missing or invalid X-API-Key"}, status_code=401)
     return await call_next(request)
 
@@ -115,7 +117,8 @@ async def api_search(request: Request):
 @app.post("/api/fulltext")
 async def api_fulltext(request: Request):
     body = await request.json()
-    return ft.retrieve(body.get("doi", ""), expected_title=body.get("title"))
+    return ft.retrieve(body.get("doi", ""), expected_title=body.get("title"),
+                       licensed=auth.caller_is_tdm_entitled())
 
 
 @app.get("/health")
@@ -300,6 +303,25 @@ def toggle_key(request: Request, key_id: int):
         row = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if row:
             row.active = not row.active
+            db.commit()
+    finally:
+        db.close()
+    return RedirectResponse("/admin", status_code=303)
+
+
+@app.post("/admin/keys/{key_id}/tdm")
+def toggle_tdm(request: Request, key_id: int):
+    """Grant or withdraw this key's use of the server's publisher TDM
+    credentials. A separate switch from active/revoked on purpose: a working
+    key and a licence-covered key are different things, and only the second
+    should ever reach subscription full text."""
+    if (r := _require_admin(request)) is not None:
+        return r
+    db = SessionLocal()
+    try:
+        row = db.query(ApiKey).filter(ApiKey.id == key_id).first()
+        if row:
+            row.tdm_entitled = not row.tdm_entitled
             db.commit()
     finally:
         db.close()

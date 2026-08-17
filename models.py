@@ -33,6 +33,12 @@ class ApiKey(Base):
                  default=lambda: "ctr_" + secrets.token_urlsafe(32))
     notes = Column(Text, default="")
     active = Column(Boolean, default=True)
+    # Subscription full text (Elsevier, Wiley) is reachable only under an
+    # institutional licence, and a licence covers *people*, not servers. So the
+    # publisher credentials are not a property of the deployment: a key is
+    # entitled to use them only if its holder is themselves covered. Default
+    # off — issuing a key never hands out institutional access with it.
+    tdm_entitled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=utcnow)
     last_used_at = Column(DateTime, nullable=True)
 
@@ -78,7 +84,8 @@ def init_db():
     import os
     os.makedirs("data", exist_ok=True)
     Base.metadata.create_all(engine)
-    # Column-level migration for DBs created before share links existed.
+    # Column-level migrations for DBs created before share links and TDM
+    # entitlement existed. Both are idempotent: added only when absent.
     with engine.connect() as conn:
         cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runs)")]
         if "share_token" not in cols:
@@ -86,6 +93,13 @@ def init_db():
         conn.exec_driver_sql(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_runs_share_token "
             "ON runs(share_token)")
+        keycols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(api_keys)")]
+        if "tdm_entitled" not in keycols:
+            # Existing keys land on 0: entitlement is granted deliberately,
+            # never inherited by a migration.
+            conn.exec_driver_sql(
+                "ALTER TABLE api_keys ADD COLUMN tdm_entitled BOOLEAN "
+                "NOT NULL DEFAULT 0")
         conn.commit()
 
 

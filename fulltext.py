@@ -17,7 +17,8 @@ The ladder, in order of preference:
    publishers emit (the same trick Zotero and Scholar use).
 4. **Publisher TDM APIs** (Elsevier, Springer OA, Wiley) — the sanctioned way
    into subscription content, tried only when a key is configured and only for
-   DOIs with that publisher's prefix.
+   DOIs with that publisher's prefix. The two subscription APIs (Elsevier,
+   Wiley) additionally require the *caller* to be entitled: see below.
 5. **OA siblings** — OpenAlex indexes preprint and publisher versions as
    separate works, so when every rung fails on the requested DOI the ladder
    looks for a same-titled work under another DOI (an ACM paper's arXiv copy,
@@ -25,6 +26,17 @@ The ladder, in order of preference:
 
 PDFs are converted through paper2md (references stripped — the model reads the
 article, not its bibliography).
+
+**Entitlement.** An institutional TDM licence (and the Elsevier institutional
+token that implements it) covers the people it names, not whatever server
+their software runs on. Contrarian is multi-client: several API keys can
+reach the same deployment. So the subscription rungs are gated on the caller,
+not on the deployment — `licensed=True` reaches the ladder only for a key the
+admin has marked as entitled, and the default everywhere is False. Springer's
+endpoint is exempt because it serves open-access content only, which nobody
+needs a licence to read. A skipped rung leaves a note in the trace rather
+than failing silently, so an unentitled caller can see *why* a paywalled DOI
+came back empty.
 
 **Content verification.** OA location metadata is dirty: Unpaywall and
 OpenAlex sometimes declare a repository deposit (Zenodo, most often) that is a
@@ -344,24 +356,40 @@ def _wiley(doi: str, token: str, notes: set) -> bytes | None:
     return None
 
 
-def publisher_fulltext(doi: str, notes: set) -> tuple[str | None, bytes | None]:
+def publisher_fulltext(doi: str, notes: set,
+                       licensed: bool = False) -> tuple[str | None, bytes | None]:
     """(markdown, pdf_bytes) from whichever publisher owns this DOI prefix.
+
     Keys come from the environment; a publisher with no key is skipped, so an
-    unconfigured Contrarian never calls out."""
+    unconfigured Contrarian never calls out. `licensed` says whether the
+    caller is covered by the institution's TDM licence: without it the two
+    subscription APIs are not called at all, however well configured the
+    server is. Springer's open-access endpoint is not gated — it returns only
+    OA articles."""
     prefix = doi.split("/")[0]
     if prefix in ELSEVIER_PREFIXES:
-        md = _elsevier(doi, os.environ.get("ELSEVIER_API_KEY", "").strip(),
-                       os.environ.get("ELSEVIER_INSTTOKEN", "").strip(), notes)
-        if md:
-            return md, None
+        key = os.environ.get("ELSEVIER_API_KEY", "").strip()
+        if licensed:
+            md = _elsevier(doi, key,
+                           os.environ.get("ELSEVIER_INSTTOKEN", "").strip(), notes)
+            if md:
+                return md, None
+        elif key:
+            notes.add("Elsevier TDM not attempted — this API key is not "
+                      "entitled to the institutional licence")
     if prefix in SPRINGER_PREFIXES:
         md = _springer(doi, os.environ.get("SPRINGER_API_KEY", "").strip(), notes)
         if md:
             return md, None
     if prefix in WILEY_PREFIXES:
-        pdf = _wiley(doi, os.environ.get("WILEY_TDM_TOKEN", "").strip(), notes)
-        if pdf:
-            return None, pdf
+        token = os.environ.get("WILEY_TDM_TOKEN", "").strip()
+        if licensed:
+            pdf = _wiley(doi, token, notes)
+            if pdf:
+                return None, pdf
+        elif token:
+            notes.add("Wiley TDM not attempted — this API key is not "
+                      "entitled to the institutional licence")
     return None, None
 
 
@@ -445,7 +473,8 @@ def title_matches(md: str, title: str) -> bool:
 
 # ── The ladder ─────────────────────────────────────────────────────────────────
 
-def retrieve(doi: str, expected_title: str | None = None) -> dict:
+def retrieve(doi: str, expected_title: str | None = None,
+             licensed: bool = False) -> dict:
     """Walk the ladder for one DOI. Returns:
       {"status": "ok"|"url_only"|"failed", "markdown": str, "provider": str,
        "url": str, "chars": int, "title_verified": True|"unverified",
@@ -454,7 +483,11 @@ def retrieve(doi: str, expected_title: str | None = None) -> dict:
     back to Crossref when the caller has none): a text that does not match the
     requested record is discarded with a note and the ladder continues. On
     "url_only" the best OA link seen is returned so a human can fetch it
-    manually; the markdown is empty."""
+    manually; the markdown is empty.
+
+    `licensed` opens the subscription rungs for this call (see Entitlement
+    above). It defaults to False, so a caller that forgets to pass it gets the
+    open-access ladder, never the institution's credentials."""
     doi = (doi or "").strip().replace("https://doi.org/", "")
     notes: set = set()
     if not doi:
@@ -501,7 +534,7 @@ def retrieve(doi: str, expected_title: str | None = None) -> dict:
             if md and (r := _accept(md, "oa_pdf+paper2md", url)):
                 return r
 
-    md, pdf = publisher_fulltext(doi, notes)
+    md, pdf = publisher_fulltext(doi, notes, licensed)
     if md and (r := _accept(md, "publisher_tdm", f"https://doi.org/{doi}")):
         return r
     if pdf:
