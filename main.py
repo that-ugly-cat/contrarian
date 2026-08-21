@@ -151,11 +151,18 @@ def piece(request: Request, name: str):
 
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request):
+    # In gateway mode the app switches its own login off rather than relying on
+    # the proxy to hide it: leaving it reachable would mean two ways in, and
+    # the SSO would not actually be enforced.
+    if auth.gateway_mode():
+        return RedirectResponse("/runs", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"error": ""})
 
 
 @app.post("/login")
 def login(request: Request, password: str = Form(...)):
+    if auth.gateway_mode():
+        return RedirectResponse("/runs", status_code=303)
     if not auth.check_admin_password(password):
         return templates.TemplateResponse(request, "login.html",
                                           {"error": "Wrong password."})
@@ -166,9 +173,15 @@ def login(request: Request, password: str = Form(...)):
     return resp
 
 
+BORANT_LOGOUT_URL = os.environ.get("BORANT_LOGOUT_URL", "https://id.borant.eu/logout")
+
+
 @app.get("/logout")
 def logout():
-    resp = RedirectResponse("/", status_code=303)
+    # In gateway mode dropping the local cookie is not signing out: the gate
+    # still holds the session, and the next click walks straight back in.
+    target = BORANT_LOGOUT_URL if auth.gateway_mode() else "/"
+    resp = RedirectResponse(target, status_code=303)
     resp.delete_cookie(auth.COOKIE)
     return resp
 

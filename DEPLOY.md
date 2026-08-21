@@ -74,3 +74,57 @@ docker compose up -d
 
 `data/contrarian.db` (API keys + traces). No other state — full texts are
 never stored by design.
+
+## Behind an SSO gate (`AUTH_MODE=gateway`)
+
+Optional, and off unless you switch it on. It moves **one** boundary: the admin
+password that guards `/runs` and `/admin` is replaced by an upstream
+`forward_auth` gate. Everything else stays exactly where it was.
+
+**The glass box stays open.** `/`, `/piece/*` and `/health` are public because
+they mirror a public repo — hiding the method would add friction, not security —
+and `/r/{token}` stays public because a shared trace is meant to be readable by
+someone who has no account here and should not need one.
+
+**The key-facing surface does not move either.** `/mcp*` and `/api/*` keep their
+own `X-API-Key`, checked in the middleware before any handler runs. That is not
+just a convenience for clients with no cookie: the TDM credentials ride on the
+key row, so *which key called* is the question the audit trail has to answer,
+and a domain session cannot answer it.
+
+**`local` stays the default.** An app that believes `X-Borant-Sub` with nothing
+in front of it lets in anyone who sends that header.
+
+```
+contrarian.borant.eu {
+    @pubbliche path / /piece/* /r/* /health /api/* /mcp /mcp/* /login /logout
+    handle @pubbliche {
+        import noforge
+        import nocookie
+        reverse_proxy localhost:8014
+    }
+    handle {
+        import borantid
+        reverse_proxy localhost:8014
+    }
+}
+```
+
+There is no user table here and nothing to map: the gate answers one question,
+"is this the admin", and a grant for this host is what makes the answer yes.
+`ADMIN_PASSWORD` should stay set — it is what `AUTH_MODE=local` falls back to.
+
+`BORANT_TRUSTED_PROXY` is the second lock and the setting people get wrong.
+Under Docker the container does not see `127.0.0.1` but a bridge gateway. Read
+it off reality rather than guessing:
+
+```bash
+curl -s -o /dev/null http://127.0.0.1:8014/health && docker logs contrarian-contrarian-1 2>&1 | tail -1
+```
+
+Rollback, two lines:
+
+```bash
+sed -i 's/^AUTH_MODE=gateway/AUTH_MODE=local/' .env
+docker compose up -d
+```
