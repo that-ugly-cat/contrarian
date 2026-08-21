@@ -311,6 +311,59 @@ def revoke_share(request: Request, run_id: str):
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
 
+# ── Your own keys and credentials ──────────────────────────────────────────────
+
+@app.get("/me", response_class=HTMLResponse)
+def me(request: Request):
+    """Your keys, and the institutional credentials each one carries.
+
+    This page exists because of an asymmetry the app argued itself into. It puts
+    publisher credentials on the key rather than in the environment, on the
+    grounds that a licence covers the people it names — and then, for a while,
+    had only the admin able to type one in. That meant a colleague had to hand
+    their institutional token, which Elsevier itself describes as full access to
+    a customer account, to someone else in order to use their own entitlement.
+    The storage was always careful; the way in was not.
+    """
+    db = SessionLocal()
+    try:
+        user, redirect = _require_user(request, db)
+        if redirect is not None:
+            return redirect
+        keys = (db.query(ApiKey).filter(ApiKey.user_id == user.id)
+                  .order_by(ApiKey.created_at.desc()).all())
+        return templates.TemplateResponse(request, "me.html", {
+            "keys": keys, "is_admin": user.is_admin, "signed_in": True})
+    finally:
+        db.close()
+
+
+@app.post("/me/keys/{key_id}/tdm")
+def set_own_tdm(request: Request, key_id: int,
+                elsevier_key: str = Form(""),
+                elsevier_insttoken: str = Form(""),
+                wiley_token: str = Form(""),
+                clear: str = Form("")):
+    """Same storage as the admin route, one owner check apart: you may set the
+    credentials of your keys and of nobody else's."""
+    db = SessionLocal()
+    try:
+        user, redirect = _require_user(request, db)
+        if redirect is not None:
+            return redirect
+        row = db.query(ApiKey).filter(ApiKey.id == key_id,
+                                      ApiKey.user_id == user.id).first()
+        if row:
+            credentials.store(row, {
+                "elsevier_key": elsevier_key,
+                "elsevier_insttoken": elsevier_insttoken,
+                "wiley_token": wiley_token}, clear=bool(clear))
+            db.commit()
+    finally:
+        db.close()
+    return RedirectResponse("/me", status_code=303)
+
+
 # ── Admin: API keys ────────────────────────────────────────────────────────────
 
 @app.get("/admin", response_class=HTMLResponse)

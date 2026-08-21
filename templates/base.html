@@ -162,7 +162,7 @@ blockquote {
        has traces of their own, but keys and TDM credentials are one person's
        job. On the public pages neither is known, and "login" simply leads to
        the door. #}
-    {% if signed_in %}<a href="/runs">traces</a>{% if is_admin %}<a href="/admin">keys</a>{% endif %}<a href="/logout">logout</a>
+    {% if signed_in %}<a href="/runs">traces</a><a href="/me">your keys</a>{% if is_admin %}<a href="/admin">all keys</a>{% endif %}<a href="/logout">logout</a>
     {% else %}<a href="/login">login</a>{% endif %}
   </nav>
 </header>

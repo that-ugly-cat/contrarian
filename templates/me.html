@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}your keys — Contrarian{% endblock %}
+{% block content %}
+<h1>Your keys</h1>
+<p class="muted">
+  The keys issued to you, and the institutional credentials each one carries.
+  A run made with a key belongs to you and reaches subscription full text under
+  <em>your</em> licence — which is why these are set here, by you, and not by
+  whoever administers the server.
+</p>
+
+{% if not keys %}
+<p class="muted">You have no keys yet. Ask the administrator to issue one.</p>
+{% endif %}
+
+{% for k in keys %}
+<div class="card" style="margin-bottom:1.2rem">
+  <h2 style="margin-bottom:.2rem">{{ k.name }}</h2>
+  <p class="muted" style="margin-top:0">
+    <code>{{ k.key }}</code><br>
+    {{ "active" if k.active else "revoked" }} ·
+    last used {{ k.last_used_at.strftime("%Y-%m-%d %H:%M") if k.last_used_at else "never" }} ·
+    reach: {{ tdm_summary(k) }}
+  </p>
+
+  <details>
+    <summary class="muted">Institutional TDM credentials</summary>
+    <form method="post" action="/me/keys/{{ k.id }}/tdm" style="margin:.6rem 0">
+      <p class="muted">
+        Leave a field blank to keep what is stored — nothing here is ever shown
+        back, not to you and not to the administrator, so a form that asked you
+        to retype a credential to keep it would be asking you to reveal it. The
+        Elsevier key alone returns 403 from a server: the institutional token is
+        what your library issues alongside it.
+      </p>
+      <input type="password" name="elsevier_key" autocomplete="off"
+             placeholder="Elsevier API key">
+      <input type="password" name="elsevier_insttoken" autocomplete="off"
+             placeholder="Elsevier institutional token">
+      <input type="password" name="wiley_token" autocomplete="off"
+             placeholder="Wiley TDM token">
+      <button type="submit">Save</button>
+      <label class="muted" style="margin-left:.8rem">
+        <input type="checkbox" name="clear" value="1"> clear all three
+      </label>
+    </form>
+  </details>
+</div>
+{% endfor %}
+{% endblock %}
