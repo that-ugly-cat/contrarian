@@ -21,6 +21,7 @@ import re
 
 from mcp.server.mcpserver import MCPServer
 
+import auth
 import credentials
 import fulltext as ft
 import prompts
@@ -80,7 +81,12 @@ def start_run(claim: str) -> dict:
         return _fail("empty claim")
     db = SessionLocal()
     try:
+        # The trace belongs to whoever holds the key that opened it. A key with
+        # no owner yet produces an unowned run rather than a run belonging to
+        # nobody in particular that everyone can read: backfill_owners.py exists
+        # to make sure there are none of those.
         run = Run(claim=claim,
+                  user_id=auth.caller_user_id(),
                   protocol_versions=json.dumps(prompts.versions()))
         db.add(run)
         db.commit()

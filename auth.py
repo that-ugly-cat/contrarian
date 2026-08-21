@@ -16,6 +16,7 @@ are handled in credentials.py, not here.
 import ipaddress
 import logging
 import os
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -92,21 +93,83 @@ def make_session_cookie() -> str:
     return jwt.encode({"admin": True, "exp": exp}, _secret(), algorithm=JWT_ALG)
 
 
-def is_admin(request: Request) -> bool:
+def _gateway_subject(request: Request) -> str | None:
+    """The subject the gate vouched for, or None. Reaching a gated route at all
+    means the gate found a valid session and a grant for this host — but a
+    grant says «may enter», not «is the admin», which is the distinction this
+    app was missing."""
+    if not gateway_mode():
+        return None
+    sub = request.headers.get("x-borant-sub")
+    if not sub:
+        return None
+    if not _from_trusted_proxy(request):
+        log.warning("X-Borant-Sub from %s, outside BORANT_TRUSTED_PROXY (%s): ignored",
+                    request.client.host if request.client else "?", TRUSTED_PROXY)
+        return None
+    return sub
+
+
+def current_user(request: Request, db):
+    """The person making this request, as a User row, or None.
+
+    In `local` mode there is exactly one identity — whoever knows the admin
+    password — so the cookie resolves to the seeded admin row. In `gateway`
+    mode the subject comes from the gate, and an unknown one gets a profile:
+    they have a grant, so they are entitled to *use* the service; what they are
+    not entitled to is anyone else's traces, and a fresh row with no runs is
+    exactly that.
+    """
+    from models import User  # local import: models imports nothing from here
+
     if gateway_mode():
-        # Reaching a gated route at all means the gate found a valid session and
-        # a grant for this host, so there is nothing left for us to decide. The
-        # local cookie is deliberately not consulted: a stale one must not
-        # outlive a session revoked centrally.
-        sub = request.headers.get("x-borant-sub")
+        sub = _gateway_subject(request)
         if not sub:
+            return None
+        user = db.query(User).filter(User.borant_sub == sub).first()
+        if user is not None:
+            return user
+        user = User(borant_sub=sub,
+                    email=(request.headers.get("x-borant-email", "") or "").strip().lower() or None,
+                    name=request.headers.get("x-borant-name", "") or "",
+                    is_admin=False)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        log.info("gateway: new profile for %s (%s)", user.email, sub)
+        return user
+
+    token = request.cookies.get(COOKIE, "")
+    if not token:
+        return None
+    try:
+        data = jwt.decode(token, _secret(), algorithms=[JWT_ALG])
+    except jwt.PyJWTError:
+        return None
+    if not data.get("admin"):
+        return None
+    # One password, one identity: the admin row. On an existing deployment
+    # backfill_owners.py seeded it; on a fresh one nothing has, and returning
+    # None here would bounce the only person who can log in back to the login
+    # page forever. So `local` mints its own admin the first time it needs one.
+    user = db.query(User).filter(User.is_admin.is_(True)).order_by(User.id).first()
+    if user is None:
+        user = User(name="admin", is_admin=True)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        log.info("local: created the admin row on first use")
+    return user
+
+
+def is_admin(request: Request, db=None) -> bool:
+    """Admin means key and TDM-credential management, and nothing else. It does
+    not open other people's traces — those follow ownership, not rank."""
+    if gateway_mode():
+        if db is None:
             return False
-        if not _from_trusted_proxy(request):
-            log.warning(
-                "X-Borant-Sub from %s, outside BORANT_TRUSTED_PROXY (%s): ignored",
-                request.client.host if request.client else "?", TRUSTED_PROXY)
-            return False
-        return True
+        user = current_user(request, db)
+        return bool(user and user.is_admin)
     token = request.cookies.get(COOKIE, "")
     if not token:
         return False
@@ -115,6 +178,15 @@ def is_admin(request: Request) -> bool:
         return bool(data.get("admin"))
     except jwt.PyJWTError:
         return False
+
+
+def may_enter(request: Request) -> bool:
+    """Whether this request got past the front door at all. In `gateway` that is
+    the gate's business (a valid session plus a grant); in `local` it is the
+    admin cookie, because there is no other way in."""
+    if gateway_mode():
+        return _gateway_subject(request) is not None
+    return is_admin(request)
 
 
 def check_api_key(db, key: str):
@@ -131,4 +203,17 @@ def check_api_key(db, key: str):
     return row
 
 
-    return row
+# Who the calling key belongs to, for the duration of one request. The TDM
+# credentials travel in their own contextvar (credentials.py) because they
+# answer a different question — *what may this call reach* — while this one
+# answers *whose run is this*. Keeping them apart means a key with no
+# subscription entitlement still produces a trace that belongs to someone.
+_CALLER_USER: ContextVar["int | None"] = ContextVar("caller_user_id", default=None)
+
+
+def set_caller_key(row) -> None:
+    _CALLER_USER.set(getattr(row, "user_id", None) if row else None)
+
+
+def caller_user_id():
+    return _CALLER_USER.get()

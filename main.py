@@ -29,7 +29,7 @@ import fulltext as ft
 import prompts
 import sources
 from mcp_app import mcp
-from models import ApiKey, Run, SessionLocal, init_db
+from models import ApiKey, Run, SessionLocal, User, init_db
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -85,6 +85,7 @@ async def api_key_gate(request: Request, call_next):
         try:
             row = auth.check_api_key(db, key)
             credentials.set_caller(row)
+            auth.set_caller_key(row)
         finally:
             db.close()
         if not row:
@@ -97,6 +98,7 @@ async def api_key_gate(request: Request, call_next):
         try:
             row = auth.check_api_key(db, key)
             credentials.set_caller(row)
+            auth.set_caller_key(row)
         finally:
             db.close()
         if not row:
@@ -186,26 +188,40 @@ def logout():
     return resp
 
 
-def _require_admin(request: Request):
-    return None if auth.is_admin(request) else RedirectResponse("/login", status_code=303)
+def _require_admin(request: Request, db=None):
+    """Key and TDM-credential management. Not a way into other people's runs."""
+    return None if auth.is_admin(request, db) else RedirectResponse("/login", status_code=303)
+
+
+def _require_user(request: Request, db):
+    """Anyone who got past the front door, as a row. Returns (user, redirect)."""
+    user = auth.current_user(request, db)
+    return (user, None) if user is not None else (None, RedirectResponse("/login", status_code=303))
 
 
 # ── Trace viewer (private: content, not method) ────────────────────────────────
 
 @app.get("/runs", response_class=HTMLResponse)
 def runs(request: Request):
-    if (r := _require_admin(request)) is not None:
-        return r
     db = SessionLocal()
     try:
-        rows = db.query(Run).order_by(Run.created_at.desc()).limit(200).all()
+        user, redirect = _require_user(request, db)
+        if redirect is not None:
+            return redirect
+        # Your traces, and only yours — the admin flag does not widen this on
+        # purpose. A trace is content, and content stays with whoever produced
+        # it; if someone wants to show you one, the share link already exists.
+        rows = (db.query(Run).filter(Run.user_id == user.id)
+                  .order_by(Run.created_at.desc()).limit(200).all())
         return templates.TemplateResponse(request, "runs.html",
-                                          {"runs": rows, "is_admin": True})
+                                          {"runs": rows, "is_admin": user.is_admin,
+                                           "signed_in": True})
     finally:
         db.close()
 
 
-def _render_run(request: Request, run: Run, *, is_admin: bool, public: bool):
+def _render_run(request: Request, run: Run, *, is_admin: bool, public: bool,
+                signed_in: bool = False):
     events = [{"seq": e.seq, "kind": e.kind, "at": e.created_at,
                "data": e.data} for e in run.events]
     share_url = ""
@@ -215,19 +231,26 @@ def _render_run(request: Request, run: Run, *, is_admin: bool, public: bool):
     return templates.TemplateResponse(request, "run.html", {
         "run": run, "events": events,
         "versions": json.loads(run.protocol_versions or "{}"),
-        "is_admin": is_admin, "public": public, "share_url": share_url})
+        "is_admin": is_admin, "public": public, "share_url": share_url,
+        "signed_in": signed_in})
 
 
 @app.get("/runs/{run_id}", response_class=HTMLResponse)
 def run_detail(request: Request, run_id: str):
-    if (r := _require_admin(request)) is not None:
-        return r
     db = SessionLocal()
     try:
-        run = db.query(Run).filter(Run.id == run_id).first()
+        user, redirect = _require_user(request, db)
+        if redirect is not None:
+            return redirect
+        # Someone else's run answers the same as one that does not exist. There
+        # is nothing to gain from telling an authenticated stranger that a
+        # given trace id is real.
+        run = db.query(Run).filter(Run.id == run_id,
+                                   Run.user_id == user.id).first()
         if run is None:
             return RedirectResponse("/runs", status_code=303)
-        return _render_run(request, run, is_admin=True, public=False)
+        return _render_run(request, run, is_admin=user.is_admin, public=False,
+                           signed_in=True)
     finally:
         db.close()
 
@@ -253,12 +276,16 @@ def shared_run(request: Request, token: str):
 
 @app.post("/runs/{run_id}/share")
 def create_share(request: Request, run_id: str):
-    if (r := _require_admin(request)) is not None:
-        return r
     import secrets
     db = SessionLocal()
     try:
-        run = db.query(Run).filter(Run.id == run_id).first()
+        user, redirect = _require_user(request, db)
+        if redirect is not None:
+            return redirect
+        # Sharing is the owner's call and not the admin's: publishing someone
+        # else's verification is precisely what ownership exists to prevent.
+        run = db.query(Run).filter(Run.id == run_id,
+                                   Run.user_id == user.id).first()
         if run is not None and not run.share_token:
             run.share_token = secrets.token_urlsafe(16)
             db.commit()
@@ -269,11 +296,13 @@ def create_share(request: Request, run_id: str):
 
 @app.post("/runs/{run_id}/share/revoke")
 def revoke_share(request: Request, run_id: str):
-    if (r := _require_admin(request)) is not None:
-        return r
     db = SessionLocal()
     try:
-        run = db.query(Run).filter(Run.id == run_id).first()
+        user, redirect = _require_user(request, db)
+        if redirect is not None:
+            return redirect
+        run = db.query(Run).filter(Run.id == run_id,
+                                   Run.user_id == user.id).first()
         if run is not None and run.share_token:
             run.share_token = None
             db.commit()
@@ -286,24 +315,34 @@ def revoke_share(request: Request, run_id: str):
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin(request: Request):
-    if (r := _require_admin(request)) is not None:
-        return r
     db = SessionLocal()
     try:
+        if (r := _require_admin(request, db)) is not None:
+            return r
         keys = db.query(ApiKey).order_by(ApiKey.created_at.desc()).all()
-        return templates.TemplateResponse(request, "admin.html",
-                                          {"keys": keys, "is_admin": True})
+        me = auth.current_user(request, db)
+        return templates.TemplateResponse(request, "admin.html", {
+            "keys": keys, "is_admin": True, "signed_in": True,
+            "users": db.query(User).order_by(User.id).all(),
+            "me_id": me.id if me else None,
+            "owners": {u.id: (u.name or u.email or f"user {u.id}")
+                       for u in db.query(User).all()}})
     finally:
         db.close()
 
 
 @app.post("/admin/keys")
-def create_key(request: Request, name: str = Form(...), notes: str = Form("")):
-    if (r := _require_admin(request)) is not None:
-        return r
+def create_key(request: Request, name: str = Form(...), notes: str = Form(""),
+               owner_id: int | None = Form(None)):
     db = SessionLocal()
     try:
-        db.add(ApiKey(name=name, notes=notes))
+        if (r := _require_admin(request, db)) is not None:
+            return r
+        # No owner falls back to the admin issuing it rather than to nobody: an
+        # ownerless key makes runs nobody can see, which is safe but useless.
+        me = auth.current_user(request, db)
+        db.add(ApiKey(name=name, notes=notes,
+                      user_id=owner_id or (me.id if me else None)))
         db.commit()
     finally:
         db.close()
@@ -312,10 +351,10 @@ def create_key(request: Request, name: str = Form(...), notes: str = Form("")):
 
 @app.post("/admin/keys/{key_id}/toggle")
 def toggle_key(request: Request, key_id: int):
-    if (r := _require_admin(request)) is not None:
-        return r
     db = SessionLocal()
     try:
+        if (r := _require_admin(request, db)) is not None:
+            return r
         row = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if row:
             row.active = not row.active
@@ -335,10 +374,10 @@ def set_tdm_credentials(request: Request, key_id: int,
     stored value alone — the form never shows a credential, so it cannot ask
     the admin to retype one to keep it — and `clear` wipes all three. Storage
     and encryption live in credentials.py."""
-    if (r := _require_admin(request)) is not None:
-        return r
     db = SessionLocal()
     try:
+        if (r := _require_admin(request, db)) is not None:
+            return r
         row = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if row:
             credentials.store(row, {"elsevier_key": elsevier_key,

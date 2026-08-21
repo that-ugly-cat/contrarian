@@ -25,9 +25,39 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    """Who a trace belongs to.
+
+    Added late, and the reason it was missing is worth keeping: for a long time
+    this service had exactly one human, so "the admin" and "the person whose
+    trace this is" were the same row and neither needed a name. The moment a
+    second key holder existed that stopped being true, and a list of runs with
+    no owner column silently showed everyone everything.
+
+    The app already insists on knowing *which key* retrieved a paper, because a
+    publisher licence covers the people it names. This is the same question one
+    level up — whose verification is this — and it deserves the same answer.
+
+    Identity comes from the SSO gate (`borant_sub`) when there is one. A row can
+    exist without it: a key issued to someone who has no account here yet still
+    needs an owner, so that their runs are theirs from the first call.
+    """
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    borant_sub = Column(String, unique=True, nullable=True, index=True)
+    email = Column(String, nullable=True)
+    name = Column(String, default="")
+    # Key and TDM-credential management only. It does NOT open other people's
+    # traces: those are content, and content stays with whoever produced it.
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=utcnow)
+
+
 class ApiKey(Base):
     __tablename__ = "api_keys"
     id = Column(Integer, primary_key=True)
+    # Whose key this is. A run made with it belongs to this person.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String, nullable=False)
     key = Column(String, unique=True, nullable=False,
                  default=lambda: "ctr_" + secrets.token_urlsafe(32))
@@ -50,6 +80,9 @@ class Run(Base):
     __tablename__ = "runs"
     id = Column(String, primary_key=True,
                 default=lambda: secrets.token_urlsafe(9))
+    # Whose verification this is, taken from the key that made the call. Null
+    # only for runs made before ownership existed; the backfill assigns those.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     claim = Column(Text, nullable=False)
     status = Column(String, default="running")      # running | finished
     verdict = Column(String, default="")            # supported | contested | unsupported | no_evidence
@@ -93,6 +126,14 @@ def init_db():
         cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runs)")]
         if "share_token" not in cols:
             conn.exec_driver_sql("ALTER TABLE runs ADD COLUMN share_token VARCHAR")
+        # Ownership, added when a second key holder made "whose trace is this"
+        # a real question. Existing rows land with NULL and are assigned by
+        # backfill_owners.py — deliberately a script that prints what it did,
+        # not a guess made at startup.
+        if "user_id" not in cols:
+            conn.exec_driver_sql("ALTER TABLE runs ADD COLUMN user_id INTEGER")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_runs_user_id ON runs(user_id)")
         conn.exec_driver_sql(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_runs_share_token "
             "ON runs(share_token)")
@@ -103,6 +144,10 @@ def init_db():
             if col not in keycols:
                 conn.exec_driver_sql(
                     f"ALTER TABLE api_keys ADD COLUMN {col} TEXT DEFAULT ''")
+        if "user_id" not in keycols:
+            conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN user_id INTEGER")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_api_keys_user_id ON api_keys(user_id)")
         if "tdm_entitled" in keycols:
             # Superseded: a boolean said who *may* use the server's shared
             # credentials, which left the credentials themselves belonging to

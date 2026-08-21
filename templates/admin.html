@@ -12,13 +12,21 @@ never shown again — a credential can be replaced or cleared, not read back.</p
 <form method="post" action="/admin/keys" style="margin-bottom:1.5rem">
   <input type="text" name="name" placeholder="key name" required>
   <input type="text" name="notes" placeholder="notes">
+  {# Whose key this is. Runs made with it belong to that person and to nobody
+     else — including whoever is looking at this page. #}
+  <select name="owner_id">
+    {% for u in users %}
+    <option value="{{ u.id }}"{% if u.id == me_id %} selected{% endif %}>{{ u.name or u.email or ("user " ~ u.id) }}</option>
+    {% endfor %}
+  </select>
   <button type="submit">Issue key</button>
 </form>
 <table>
-  <tr><th>name</th><th>key</th><th>notes</th><th>last used</th><th>reach</th><th>status</th><th></th></tr>
+  <tr><th>name</th><th>owner</th><th>key</th><th>notes</th><th>last used</th><th>reach</th><th>status</th><th></th></tr>
   {% for k in keys %}
   <tr>
     <td>{{ k.name }}</td>
+    <td class="muted">{{ owners.get(k.user_id, "—") }}</td>
     <td><code>{{ k.key }}</code></td>
     <td class="muted">{{ k.notes }}</td>
     <td class="muted">{{ k.last_used_at.strftime("%Y-%m-%d %H:%M") if k.last_used_at else "never" }}</td>
