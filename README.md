@@ -90,3 +90,23 @@ the full-text ladder from [LSSR](https://github.com/that-ugly-cat/lssr)
 author handling, repository-first OA resolution), PDF conversion via
 [paper2md](https://github.com/that-ugly-cat/paper2md), procedural citations
 from LSSR's synthesis step. AGPL-3.0, like its siblings.
+
+## Optional: behind an SSO gate
+
+`AUTH_MODE=gateway` replaces the admin password with an upstream `forward_auth`
+gate. It moves exactly one boundary, and the other two stay put on purpose:
+
+- the **glass box** — catalog, piece pages, `/health` — stays open, and so does
+  a shared trace at `/r/{token}`: it is meant to be readable by someone who has
+  no account here and should not need one;
+- **`/mcp` and `/api` keep their own `X-API-Key`**, checked in middleware before
+  any handler. Not merely because a model client has no cookie: the publisher
+  credentials ride on the key row, so *which key called* is the question the
+  audit trail exists to answer, and a domain session cannot answer it;
+- **traces, `/me` and `/admin`** are what the gate guards.
+
+Traces belong to whoever produced them, and `/me` is where a key holder sets
+their own institutional credentials — the admin flag covers key management, not
+other people's verifications.
+
+`local` is the default and stays fully supported. Details in `DEPLOY.md`.
