@@ -18,7 +18,7 @@ import contextlib
 import json
 import os
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -135,9 +135,15 @@ def health():
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    """La scatola di vetro. Sta fuori dal gate e **non guarda chi la legge**.
+
+    `is_admin` c'era e non lo usava nessuno: `index.html` non lo nomina. Su una
+    pagina pubblica sarebbe comunque sempre falso dietro il gate e a volte vero
+    senza — la stessa pagina con due comportamenti, che e' la forma d'errore
+    che ha chiuso Spit fuori da Grant Radar il 24/8/2026.
+    """
     return templates.TemplateResponse(request, "index.html", {
-        "pieces": catalog.build_catalog(),
-        "is_admin": auth.is_admin(request)})
+        "pieces": catalog.build_catalog()})
 
 
 @app.get("/piece/{name}", response_class=HTMLResponse)
@@ -157,18 +163,18 @@ def login_form(request: Request):
     # the proxy to hide it: leaving it reachable would mean two ways in, and
     # the SSO would not actually be enforced.
     if auth.gateway_mode():
-        return RedirectResponse("/runs", status_code=303)
+        return RedirectResponse("/app", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"error": ""})
 
 
 @app.post("/login")
 def login(request: Request, password: str = Form(...)):
     if auth.gateway_mode():
-        return RedirectResponse("/runs", status_code=303)
+        return RedirectResponse("/app", status_code=303)
     if not auth.check_admin_password(password):
         return templates.TemplateResponse(request, "login.html",
                                           {"error": "Wrong password."})
-    resp = RedirectResponse("/runs", status_code=303)
+    resp = RedirectResponse("/app", status_code=303)
     resp.set_cookie(auth.COOKIE, auth.make_session_cookie(),
                     httponly=True, samesite="lax",
                     max_age=auth.SESSION_HOURS * 3600)
@@ -194,14 +200,39 @@ def _require_admin(request: Request, db=None):
 
 
 def _require_user(request: Request, db):
-    """Anyone who got past the front door, as a row. Returns (user, redirect)."""
+    """Anyone who got past the front door, as a row. Returns (user, redirect).
+
+    In `gateway` non si rimanda a `/login`: quella rotta, in questa modalita',
+    l'app la spegne da se' e rimanda qui — cioe' i due si rimbalzerebbero
+    all'infinito. In produzione non capita, perche' il gate intercetta prima
+    che la richiesta arrivi fin qui; ma se il matcher del proxy fosse sbagliato
+    si girerebbe a vuoto invece di ricevere un errore, e un anello e' molto
+    piu' difficile da diagnosticare di un 401. E' la stessa forma che il
+    24/8/2026 ha chiuso Spit fuori da Grant Radar, presa dall'altro capo.
+    """
     user = auth.current_user(request, db)
-    return (user, None) if user is not None else (None, RedirectResponse("/login", status_code=303))
+    if user is not None:
+        return user, None
+    if auth.gateway_mode():
+        raise HTTPException(status_code=503, detail=(
+            "Gateway mode: no valid identity in the X-Borant-* headers. Check "
+            "that the gate really sits in front of this app and that "
+            "BORANT_TRUSTED_PROXY lists the address the proxy connects from."))
+    return None, RedirectResponse("/login", status_code=303)
 
 
 # ── Trace viewer (private: content, not method) ────────────────────────────────
 
-@app.get("/runs", response_class=HTMLResponse)
+@app.get("/runs")
+def runs_legacy(request: Request):
+    """Le tracce stanno a `/app` dal 24/8/2026, come la home di ogni app del
+    perimetro. Permanente, e con la query string appresso se ce n'e'. Le rotte
+    figlie — `/runs/{id}`, `/runs/{id}/share` — restano dove sono."""
+    coda = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(f"/app{coda}", status_code=301)
+
+
+@app.get("/app", response_class=HTMLResponse)
 def runs(request: Request):
     db = SessionLocal()
     try:
@@ -248,7 +279,7 @@ def run_detail(request: Request, run_id: str):
         run = db.query(Run).filter(Run.id == run_id,
                                    Run.user_id == user.id).first()
         if run is None:
-            return RedirectResponse("/runs", status_code=303)
+            return RedirectResponse("/app", status_code=303)
         return _render_run(request, run, is_admin=user.is_admin, public=False,
                            signed_in=True)
     finally:
