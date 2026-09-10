@@ -3,8 +3,14 @@
 One file to read for the full audit of what the model is asked to do, the same
 choice LSSR made with its prompts.py. Each prompt carries its own semantic
 version; every trace event logs the version it ran under, so a dossier is
-reproducible: claim + protocol version + records seen → verdict. Change a
+reproducible: claim + prompt versions + records seen → verdict. Change a
 prompt, bump its version — git history becomes the history of the protocol.
+
+There is no single protocol version number, on purpose: `versions()` returns
+the whole map and that is what a run stamps into its trace. A module-level
+constant next to it would be a second name for the same fact, and the copy
+that drifts is always the one nobody reads — this file carried
+`PROTOCOL_VERSION = "1.0.0"` unread while VERIFY_CLAIM was at 1.2.0.
 
 The four step prompts map to the model-side steps of the pipeline (the
 tool-side steps — search, retrieval, citation assembly — live in code, not
@@ -18,8 +24,6 @@ Design commitments the prompts encode:
 - references are procedural tokens ([R:doi]) — the model never writes
   author/year/DOI by hand.
 """
-
-PROTOCOL_VERSION = "1.0.0"
 
 
 def _p(name: str, version: str, title: str, text: str) -> dict:

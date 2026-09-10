@@ -271,7 +271,12 @@ def runs(request: Request):
 
 
 def _render_run(request: Request, run: Run, *, is_admin: bool, public: bool,
-                signed_in: bool = False):
+                signed_in: bool = False, is_owner: bool = False):
+    """`is_owner` is what the share box hangs on, and it is passed rather than
+    inferred: the two callers already know the answer, and only the one that
+    filtered on `Run.user_id` says yes. The template used to gate on
+    `is_admin`, which is a different question and left a non-admin owner with
+    the capability in the route and no button on the page."""
     events = [{"seq": e.seq, "kind": e.kind, "at": e.created_at,
                "data": e.data} for e in run.events]
     share_url = ""
@@ -282,7 +287,7 @@ def _render_run(request: Request, run: Run, *, is_admin: bool, public: bool,
         "run": run, "events": events,
         "versions": json.loads(run.protocol_versions or "{}"),
         "is_admin": is_admin, "public": public, "share_url": share_url,
-        "signed_in": signed_in})
+        "signed_in": signed_in, "is_owner": is_owner})
 
 
 @app.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -299,8 +304,10 @@ def run_detail(request: Request, run_id: str):
                                    Run.user_id == user.id).first()
         if run is None:
             return RedirectResponse("/app", status_code=303)
+        # The query above already proved ownership: this is the only caller
+        # that can claim it.
         return _render_run(request, run, is_admin=user.is_admin, public=False,
-                           signed_in=True)
+                           signed_in=True, is_owner=True)
     finally:
         db.close()
 
@@ -318,6 +325,9 @@ def shared_run(request: Request, token: str):
                                    Run.share_token.isnot(None)).first()
         if run is None or not token:
             return RedirectResponse("/", status_code=303)
+        # No `is_owner` here even for the run's owner arriving by token: on the
+        # shared URL the page is the read-only view, and the controls live on
+        # /runs/{id}.
         return _render_run(request, run,
                            is_admin=auth.is_admin(request), public=True)
     finally:

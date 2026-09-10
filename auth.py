@@ -2,7 +2,10 @@
 
 Model-facing (/mcp, /api): X-API-Key header checked against the ApiKey table.
 Keys are issued and revoked in /admin. The TDM/publisher credentials never
-transit here — they live server-side in the environment.
+transit here — they belong to a key, not to the server: each one rides
+Fernet-encrypted on its own key row and is read in credentials.py. Only
+Springer's key stays in the environment, because that endpoint serves
+open-access articles and covers nobody's licence.
 
 Human-facing: the catalog, piece pages and prompts are public (they mirror a
 public repo; hiding them would add friction, not security). The trace and the

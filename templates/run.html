@@ -16,7 +16,9 @@ run <code>{{ run.id }}</code> · started {{ run.created_at.strftime("%Y-%m-%d %H
 protocol: {% for name, v in versions.items() %}<code>{{ name }} v{{ v }}</code> {% endfor %}
 </p>
 
-{% if is_admin and not public %}
+{# Ownership, not the admin flag: /runs/{id}/share is the owner's to call, so it
+   has to be the owner's to see. `is_owner` is never set on the public view. #}
+{% if is_owner %}
 <div class="share-box">
   {% if run.share_token %}
     <span class="badge plain">shared</span>
