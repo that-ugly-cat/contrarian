@@ -133,6 +133,25 @@ def health():
 
 # ── Public pages: the glass box ────────────────────────────────────────────────
 
+@app.get("/guide", response_class=HTMLResponse)
+def guide(request: Request):
+    """The user guide, rendered from docs/guide.md, and public like the landing.
+
+    It is linked from the card on borant.eu/tools, where the reader has no
+    account yet and is deciding whether the tool is worth asking for one. Behind
+    the gate it would document the tool to the people who already use it, which
+    is the wrong half of the audience. One source of truth: the markdown in the
+    repository, so the page cannot drift from what ships.
+    """
+    import markdown
+    md_text = open(os.path.join(BASE_DIR, "docs", "guide.md"), encoding="utf-8").read()
+    return templates.TemplateResponse(request, "guide.html", {
+        "guide_html": markdown.markdown(md_text, extensions=["tables", "fenced_code"]),
+        "app_name": "Contrarian",
+        "app_url": "/app",
+    })
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     """La scatola di vetro. Sta fuori dal gate e **non guarda chi la legge**.
