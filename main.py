@@ -316,7 +316,7 @@ def run_detail(request: Request, run_id: str):
 
 @app.get("/r/{token}", response_class=HTMLResponse)
 def shared_run(request: Request, token: str):
-    """One run, read-only, behind an unguessable token the admin created on
+    """One run, read-only, behind an unguessable token its owner created on
     purpose. The trace boundary stays: nothing is listed, nothing else is
     reachable — a revoked token 404s to the catalog."""
     db = SessionLocal()
@@ -328,8 +328,11 @@ def shared_run(request: Request, token: str):
         # No `is_owner` here even for the run's owner arriving by token: on the
         # shared URL the page is the read-only view, and the controls live on
         # /runs/{id}.
-        return _render_run(request, run,
-                           is_admin=auth.is_admin(request), public=True)
+        # And no `is_admin` either: this page is public, so asking who is
+        # reading it would give it two behaviours — one behind a gate that
+        # strips identity headers, another without one. Nothing on the
+        # read-only view depends on the answer.
+        return _render_run(request, run, public=True)
     finally:
         db.close()
 
