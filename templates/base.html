@@ -4,13 +4,49 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Contrarian — contrarian.borant.eu{% endblock %}</title>
+<script>
+  // Runs before the first paint, so a user who chose light never sees a dark
+  // frame. Kept inline because this app has no static mount: the stylesheet
+  // lives here too.
+  (function () {
+    try {
+      if (window.localStorage.getItem("contrarian-theme") === "light") {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    } catch (e) {}
+  })();
+</script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* Dark is the default; the light palette below overrides it when
+   <html data-theme="light"> is set, chosen in the header and stored in
+   localStorage. Every colour belongs in one of these two blocks: a colour
+   hard-coded further down stays dark when the page turns light.
+   Token names are this app's own (--fg, --err, --btn); the values are the ones
+   the other borant tools use. */
 :root {
+  color-scheme: dark;
   --bg: #0f1117; --card: #1a1d27; --border: #2d3148; --border-hi: #4a6fa5;
   --fg: #e2e8f0; --muted: #718096; --faint: #4a5568; --label: #a0aec0;
   --accent: #63b3ed; --accent-dim: #4a6fa5; --btn: #0a3c8a; --btn-hover: #0d4fa8;
   --err: #fc8181; --err-bg: #2d1515; --err-border: #7b2020; --ok: #68d391;
+  --err-solid: #7b2020; --err-hover: #963030;
+  --rule: #1e2235; --code-bg: #0c0e13; --ok-border: #2f855a;
+  --on-btn: #fff; --title-strong: #fff;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f7fa; --card: #ffffff; --border: #d8dee9; --border-hi: #3767ad;
+  --fg: #1a202c; --muted: #5f6a7c; --faint: #656b76; --label: #4a5568;
+  --accent: #1b5aa3; --accent-dim: #3767ad; --btn: #0a3c8a; --btn-hover: #0d4fa8;
+  --err: #b42318; --err-bg: #fdf0ef; --err-border: #eeb0aa;
+  --ok: #147033;  /* a foreground on --code-bg and on cards, not only on white */
+  /* Separate from --err-border because button.danger fills with it and puts
+     --on-btn on top: a pale border colour would leave the label unreadable. */
+  --err-solid: #9b1c14; --err-hover: #7f1710;
+  --rule: #e6eaf0; --code-bg: #eef1f6;
+  --ok-border: #3d8f5e;  /* a badge boundary that has to be seen: 3.97:1 on --card */
+  --on-btn: #ffffff; --title-strong: #101828;
 }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -18,7 +54,7 @@ body {
 }
 header {
   display: flex; align-items: baseline; gap: 1.2rem; flex-wrap: wrap;
-  padding: 1.1rem 2.5rem; border-bottom: 1px solid #1e2235;
+  padding: 1.1rem 2.5rem; border-bottom: 1px solid var(--rule);
 }
 .brand { font-size: 1.25rem; font-weight: 900; letter-spacing: -0.02em; }
 .brand a { color: var(--fg); text-decoration: none; }
@@ -27,9 +63,24 @@ header {
 nav { margin-left: auto; display: flex; gap: 1.1rem; font-size: 0.82rem; font-weight: 600; }
 nav a { color: var(--accent-dim); text-decoration: none; }
 nav a:hover { color: var(--accent); }
+/* nav is always rendered, so the switch is here for a signed-out visitor too. */
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; align-self: center;
+  font: inherit; font-size: 14px; line-height: 1;
+  color: var(--muted); background: transparent;
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.theme-toggle:hover { color: var(--fg); border-color: var(--accent); background: var(--card); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* one glyph per theme: the button shows where the click leads, not where we are */
+.theme-toggle .theme-icon-light { display: none; }
+:root[data-theme="light"] .theme-toggle .theme-icon-light { display: inline; }
+:root[data-theme="light"] .theme-toggle .theme-icon-dark { display: none; }
 main { max-width: 66rem; margin: 0 auto; padding: 2.2rem 2.5rem 3rem; }
 footer {
-  border-top: 1px solid #1e2235; color: var(--faint); font-size: 0.72rem;
+  border-top: 1px solid var(--rule); color: var(--faint); font-size: 0.72rem;
   line-height: 1.7; padding: 1.1rem 2.5rem; margin-top: 3rem;
 }
 footer a { color: var(--accent-dim); text-decoration: none; }
@@ -69,7 +120,7 @@ p { font-size: 0.9rem; }
 .explainer .body p { font-size: 0.85rem; color: var(--label); line-height: 1.7; margin: 0.7rem 0; max-width: 52rem; }
 .explainer .body strong { color: var(--fg); }
 .badge.plain { border-color: var(--accent-dim); color: var(--accent); }
-.badge.geek { border-color: #2f855a; color: var(--ok); }
+.badge.geek { border-color: var(--ok-border); color: var(--ok); }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr)); gap: 0.9rem; margin-top: 0.9rem; }
 .card {
@@ -85,10 +136,10 @@ p { font-size: 0.9rem; }
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 .badge.tool { border-color: var(--accent-dim); color: var(--accent); }
-.badge.prompt { border-color: #2f855a; color: var(--ok); }
+.badge.prompt { border-color: var(--ok-border); color: var(--ok); }
 
 pre {
-  background: #0c0e13; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
   padding: 1rem 1.2rem; overflow-x: auto; font-size: 0.78rem; line-height: 1.55;
 }
 code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85em; color: var(--label); }
@@ -98,7 +149,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
   padding: 0.9rem 1.2rem; margin: 0.8rem 0; font-size: 0.85rem; line-height: 1.65; color: var(--label);
 }
 table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
-th, td { text-align: left; padding: 0.5rem 0.8rem; border-bottom: 1px solid #1e2235; }
+th, td { text-align: left; padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--rule); }
 th { color: var(--faint); font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
 td a { text-decoration: none; }
 td a:hover { text-decoration: underline; }
@@ -110,7 +161,7 @@ input[type=text], input[type=password] {
 }
 input:focus { border-color: var(--accent-dim); }
 button {
-  padding: 0.5rem 1.1rem; background: var(--btn); color: #fff; border: none;
+  padding: 0.5rem 1.1rem; background: var(--btn); color: var(--on-btn); border: none;
   border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
 }
 button:hover { background: var(--btn-hover); }
@@ -130,8 +181,8 @@ button:hover { background: var(--btn-hover); }
 }
 .share-box form { margin: 0; }
 .share-box button { font-size: 0.78rem; padding: 0.4rem 0.9rem; }
-button.danger { background: #7b2020; }
-button.danger:hover { background: #963030; }
+button.danger { background: var(--err-solid); }
+button.danger:hover { background: var(--err-hover); }
 .warn { color: var(--err); }
 
 .event { border: 1px solid var(--border); border-radius: 8px; margin: 0.7rem 0; background: var(--card); font-size: 0.85rem; }
@@ -147,7 +198,7 @@ blockquote {
   max-width: 360px; margin: 3rem auto; background: var(--card);
   border: 1px solid var(--border); border-radius: 10px; padding: 1.8rem;
 }
-.login-card .title { font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem; }
+.login-card .title { font-size: 1.05rem; font-weight: 700; color: var(--title-strong); margin-bottom: 0.25rem; }
 .login-card .sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.6rem; line-height: 1.55; }
 @media (max-width: 700px) { header, main, footer { padding-left: 1.2rem; padding-right: 1.2rem; } }
 </style>
@@ -164,6 +215,7 @@ blockquote {
        the door. #}
     {% if signed_in %}<a href="/app">traces</a><a href="/me">your keys</a>{% if is_admin %}<a href="/admin">all keys</a>{% endif %}<a href="/logout">logout</a>
     {% else %}<a href="/app">enter</a>{% endif %}
+    <button type="button" class="theme-toggle" aria-label="Switch theme" title="Switch theme" aria-pressed="false"><span class="theme-icon-dark" aria-hidden="true">&#9788;</span><span class="theme-icon-light" aria-hidden="true">&#9790;</span></button>
   </nav>
 </header>
 <main>{% block content %}{% endblock %}</main>
@@ -174,5 +226,50 @@ blockquote {
   <a href="https://paper2md.borant.eu">paper2md</a>
   · a <a href="https://borant.eu">borant</a> tool · AGPL-3.0
 </footer>
+<script>
+  // The toggle. Two states only, dark being the default, so an existing user
+  // sees nothing change until they click. The choice is per browser: it lives
+  // in localStorage and never reaches the server. Inline because this app
+  // serves no static files — the <html data-theme> attribute itself is set by
+  // the snippet in <head>, which runs before the stylesheet paints.
+  (function () {
+    var KEY = "contrarian-theme";
+    var root = document.documentElement;
+
+    function apply(theme) {
+      if (theme === "light") {
+        root.setAttribute("data-theme", "light");
+      } else {
+        root.removeAttribute("data-theme");
+      }
+      var btn = document.querySelector(".theme-toggle");
+      if (btn) {
+        var next = theme === "light" ? "dark" : "light";
+        btn.setAttribute("aria-label", "Switch to " + next + " theme");
+        btn.setAttribute("title", "Switch to " + next + " theme");
+        btn.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+      }
+    }
+
+    function current() {
+      return root.getAttribute("data-theme") === "light" ? "light" : "dark";
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      apply(current());
+      var btn = document.querySelector(".theme-toggle");
+      if (!btn) return;
+      btn.addEventListener("click", function () {
+        var next = current() === "light" ? "dark" : "light";
+        apply(next);
+        // A browser in private mode, or with site data blocked, throws here.
+        // The theme still switches for this page; it just is not remembered.
+        try {
+          window.localStorage.setItem(KEY, next);
+        } catch (e) {}
+      });
+    });
+  })();
+</script>
 </body>
 </html>
