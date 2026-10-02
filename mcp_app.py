@@ -67,6 +67,17 @@ def _fail(msg: str) -> dict:
     return {"error": msg}
 
 
+def _release(db) -> None:
+    """End the read transaction so its pooled connection goes back before slow
+    network I/O. A tool that kept it across a full-text ladder (paper2md alone
+    may take six minutes) held one connection per call: a handful of parallel
+    runs whose retrievals hung exhausted the pool, and from then on every call,
+    even log_selection, failed with QueuePool timeouts until the container was
+    restarted. The session stays usable: the next query checks a connection out
+    again and reloads whatever was expired."""
+    db.rollback()
+
+
 # ── Tools ──────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -117,6 +128,7 @@ def search(run_id: str, database: str, query: str, stance: str,
             return _fail(f"unknown run_id {run_id}")
         if stance not in ("pro", "contra"):
             return _fail("stance must be 'pro' or 'contra'")
+        _release(db)
         try:
             result = sources.search(database, query, limit, year_from, year_to)
         except sources.SearchError as exc:
@@ -154,6 +166,7 @@ def snowball(run_id: str, doi: str, direction: str, stance: str,
         if stance not in ("pro", "contra"):
             return _fail("stance must be 'pro' or 'contra'")
         query = f"snowball:{direction}:{doi}"
+        _release(db)
         try:
             limit = max(1, min(int(limit), sources.MAX_LIMIT))
             total, records = sources.snowball_openalex(doi, direction, limit)
@@ -193,6 +206,7 @@ def get_fulltext(run_id: str, doi: str) -> dict:
         if run is None:
             return _fail(f"unknown run_id {run_id}")
         rec = records_by_key(run).get((doi or "").strip().lower())
+        _release(db)
         result = ft.retrieve(doi, expected_title=(rec or {}).get("title"),
                              creds=credentials.caller())
         log_event(db, run, "fulltext",
