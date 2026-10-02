@@ -41,7 +41,14 @@ import urllib3
 
 from authors import canonicalize, join_authors
 
-http = urllib3.PoolManager()
+# Explicit timeouts, and no sleeping on Retry-After. urllib3's defaults have no
+# timeout at all and honour a 429's Retry-After up to three times: when OpenAlex
+# started rate-limiting anonymous search (Retry-After: 35) every OpenAlex call
+# sat silently for minutes and the MCP client gave up first, so the model saw a
+# timeout instead of the database's own explanation.
+http = urllib3.PoolManager(
+    timeout=urllib3.Timeout(connect=10, read=90),
+    retries=urllib3.Retry(total=3, respect_retry_after_header=False))
 
 DATABASES = ("pubmed", "europepmc", "openalex")
 DEFAULT_LIMIT = 25
@@ -197,14 +204,34 @@ def _openalex_record(r: dict) -> dict:
     })
 
 
-def _openalex_get(path_or_params: str) -> dict:
+def openalex_identity() -> dict:
+    """Query parameters that identify this server to OpenAlex. The key matters
+    since anonymous search became rate-limited under load; without one the
+    service still works, on the anonymous allowance."""
     import os
-    url = f"https://api.openalex.org/works{path_or_params}"
+    params = {}
     mailto = os.environ.get("OPENALEX_MAILTO", "").strip()
     if mailto:
-        url += ("&" if "?" in url else "?") + urlencode({"mailto": mailto})
+        params["mailto"] = mailto
+    key = os.environ.get("OPENALEX_API_KEY", "").strip()
+    if key:
+        params["api_key"] = key
+    return params
+
+
+def _openalex_get(path_or_params: str) -> dict:
+    url = f"https://api.openalex.org/works{path_or_params}"
+    url += ("&" if "?" in url else "?") + urlencode(openalex_identity())
     resp = http.request("GET", url)
-    data = json.loads(resp.data.decode("utf-8"))
+    try:
+        data = json.loads(resp.data.decode("utf-8"))
+    except ValueError:
+        raise SearchError(f"OpenAlex answered HTTP {resp.status} with no JSON body")
+    if resp.status == 429:
+        raise SearchError(
+            f"OpenAlex is rate-limiting this server: {data.get('message', '')} "
+            "Do not retry in a loop: search europepmc or pubmed meanwhile, or "
+            "come back to OpenAlex later.")
     if resp.status >= 400 or "error" in data:
         msg = data.get("message") or data.get("error") or f"HTTP {resp.status}"
         raise SearchError(f"OpenAlex rejected the request: {msg}")

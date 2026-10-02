@@ -55,6 +55,8 @@ from urllib.parse import quote, urljoin
 
 import requests
 
+from sources import openalex_identity
+
 UA = {"User-Agent": "Mozilla/5.0 (compatible; Contrarian/1.0)"}
 TIMEOUT = 20
 MAX_CANDIDATES = 8
@@ -103,7 +105,8 @@ def _unpaywall(doi: str, email: str):
 def _openalex(doi: str, email: str):
     data = {}
     try:
-        r = _get(f"https://api.openalex.org/works/doi:{doi}", params={"mailto": email})
+        r = _get(f"https://api.openalex.org/works/doi:{doi}",
+                 params={"mailto": email, **openalex_identity()})
         if r.status_code == 200:
             data = r.json()
     except Exception:
@@ -153,7 +156,7 @@ def sibling_candidates(doi: str, title: str, email: str) -> list[tuple[str, str,
     try:
         r = _get("https://api.openalex.org/works",
                  params={"filter": f"title.search:{tnorm}", "per-page": 8,
-                         "mailto": email})
+                         "mailto": email, **openalex_identity()})
         works = r.json().get("results", []) if r.status_code == 200 else []
     except Exception:
         works = []
